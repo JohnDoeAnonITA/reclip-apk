@@ -1,0 +1,40 @@
+name: Build ReClip APK
+
+# Builds a single arm64-v8a APK on an x86_64 GitHub runner.
+# REQUIRED: the Android NDK / python-for-android only ship x86_64 host
+# toolchains -- you cannot build from an arm64 host (PRoot/Termux/etc).
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    container:
+      image: kivy/buildozer:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bundle static arm64 ffmpeg
+        run: |
+          set -e
+          curl -fL -o /tmp/ff_arm64.tar.xz \
+            https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+          tar -xJf /tmp/ff_arm64.tar.xz -C /tmp
+          cp /tmp/ffmpeg-master-latest-linuxarm64-gpl/bin/ffmpeg ./ffmpeg_arm64
+          chmod +x ./ffmpeg_arm64
+          ./ffmpeg_arm64 -version | head -1 || true   # informational
+
+      - name: Build multi-ABI APK (debug)
+        run: buildozer -v android debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reclip-arm64-apk
+          path: bin/*.apk
+          if-no-files-found: error

@@ -1,0 +1,16 @@
+# buildozer / python-for-android artifacts
+bin/
+.buildozer/
+*.apk
+*.aab
+
+# python
+__pycache__/
+*.pyc
+venv/
+
+# runtime downloads
+downloads/
+
+# ffmpeg is fetched by CI, not committed
+ffmpeg_arm64

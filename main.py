@@ -57,20 +57,21 @@ def _primary_abi():
         return platform.machine()
 
 
-FFMPEG_BY_ABI = {
-    "arm64-v8a": "ffmpeg_arm64",
-    "armeabi-v7a": "ffmpeg_armhf",
-    "armeabi": "ffmpeg_armhf",
+# Only same-family fallbacks (an arm64 device may run the 32-bit arm build;
+# an x86_64 emulator must NOT pick an ARM binary).
+FFMPEG_CANDIDATES = {
+    "arm64-v8a": ["ffmpeg_arm64", "ffmpeg_armhf"],
+    "armeabi-v7a": ["ffmpeg_armhf"],
+    "armeabi": ["ffmpeg_armhf"],
+    "x86_64": [],
+    "x86": [],
 }
 
 
 def _setup_ffmpeg(abi):
     """Pick, chmod and register the bundled ffmpeg for this ABI."""
-    names = []
-    preferred = FFMPEG_BY_ABI.get(abi)
-    if preferred:
-        names.append(preferred)
-    names += ["ffmpeg_arm64", "ffmpeg_armhf", "ffmpeg"]
+    names = list(FFMPEG_CANDIDATES.get(abi, []))
+    names.append("ffmpeg")  # optional generic name
     for name in names:
         path = os.path.join(HERE, name)
         if os.path.exists(path):

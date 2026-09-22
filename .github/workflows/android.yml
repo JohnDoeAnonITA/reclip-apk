@@ -19,14 +19,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Bundle static arm64 ffmpeg
+      - name: Bundle STATIC ffmpeg (arm64 + armhf)
         run: |
           set -e
-          curl -fL -o /tmp/ff_arm64.tar.xz \
-            https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+          # Statically-linked builds: a glibc-dynamic binary would NOT run on
+          # Android (bionic). Static ones have no interpreter/deps -> run fine.
+          curl -fsL -o /tmp/ff_arm64.tar.xz \
+            https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
           tar -xJf /tmp/ff_arm64.tar.xz -C /tmp
-          cp /tmp/ffmpeg-master-latest-linuxarm64-gpl/bin/ffmpeg ./ffmpeg_arm64
-          chmod +x ./ffmpeg_arm64
+          cp /tmp/ffmpeg-*-arm64-static/ffmpeg ./ffmpeg_arm64
+
+          curl -fsL -o /tmp/ff_armhf.tar.xz \
+            https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz
+          tar -xJf /tmp/ff_armhf.tar.xz -C /tmp
+          cp /tmp/ffmpeg-*-armhf-static/ffmpeg ./ffmpeg_armhf
+
+          chmod +x ./ffmpeg_arm64 ./ffmpeg_armhf
           ./ffmpeg_arm64 -version | head -1 || true   # informational
 
       - name: Build multi-ABI APK (debug)
@@ -35,6 +43,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: reclip-arm64-apk
+          name: reclip-multiarch-apk
           path: bin/*.apk
           if-no-files-found: error

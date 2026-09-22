@@ -16,7 +16,7 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,svg,html,css,js,json,txt
 
 # (list) Patterns of files to include (binary ffmpeg has no extension)
-source.include_patterns = ffmpeg_arm64
+source.include_patterns = ffmpeg_arm64,ffmpeg_armhf
 
 # (list) Source files to exclude
 source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer
@@ -49,9 +49,11 @@ android.minapi = 24
 # (str) Android NDK version
 android.ndk = 25b
 
-# (list) CPU architecture -- arm64 only (covers all modern phones, 2016+).
-# Single ABI = half the build work and lower memory pressure.
-android.archs = arm64-v8a
+# (list) CPU architectures -- one "fat" APK containing all of them.
+#   arm64-v8a   : all modern phones            <- ffmpeg_arm64
+#   armeabi-v7a : older 32-bit ARM devices     <- ffmpeg_armhf
+#   x86_64      : emulators only (no ffmpeg bundled)
+android.archs = arm64-v8a, armeabi-v7a, x86_64
 
 # (bool) Auto-accept the Android SDK licenses
 android.accept_sdk_license = True

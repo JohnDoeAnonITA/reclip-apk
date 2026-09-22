@@ -43,7 +43,7 @@ jobs:
           ls -lh ./ffmpeg_arm64 ./ffmpeg_armhf
 
       - name: Build multi-ABI APK (debug)
-        run: buildozer -v android debug
+        run: echo "y" | buildozer -v android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

@@ -49,11 +49,12 @@ android.minapi = 24
 # (str) Android NDK version
 android.ndk = 25b
 
-# (list) CPU architectures -- one "fat" APK containing all of them.
+# (list) CPU architectures -- one "fat" APK for real devices.
 #   arm64-v8a   : all modern phones            <- ffmpeg_arm64
 #   armeabi-v7a : older 32-bit ARM devices     <- ffmpeg_armhf
-#   x86_64      : emulators only (no ffmpeg bundled)
-android.archs = arm64-v8a, armeabi-v7a, x86_64
+# x86/x86_64 are emulator-only and have no bundled ffmpeg -> excluded to keep
+# the build under ~40 minutes.
+android.archs = arm64-v8a, armeabi-v7a
 
 # (bool) Auto-accept the Android SDK licenses
 android.accept_sdk_license = True

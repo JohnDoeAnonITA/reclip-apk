@@ -22,20 +22,25 @@ jobs:
       - name: Bundle STATIC ffmpeg (arm64 + armhf)
         run: |
           set -e
+          # The buildozer container has no curl/wget -> download with Python.
           # Statically-linked builds: a glibc-dynamic binary would NOT run on
           # Android (bionic). Static ones have no interpreter/deps -> run fine.
-          curl -fsL -o /tmp/ff_arm64.tar.xz \
-            https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
-          tar -xJf /tmp/ff_arm64.tar.xz -C /tmp
-          cp /tmp/ffmpeg-*-arm64-static/ffmpeg ./ffmpeg_arm64
-
-          curl -fsL -o /tmp/ff_armhf.tar.xz \
-            https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz
-          tar -xJf /tmp/ff_armhf.tar.xz -C /tmp
-          cp /tmp/ffmpeg-*-armhf-static/ffmpeg ./ffmpeg_armhf
-
+          python3 - <<'PY'
+          import urllib.request
+          urllib.request.urlretrieve(
+              "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz",
+              "/tmp/ff_arm64.tar.xz")
+          urllib.request.urlretrieve(
+              "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz",
+              "/tmp/ff_armhf.tar.xz")
+          PY
+          mkdir -p /tmp/x64 /tmp/xhf
+          tar -xJf /tmp/ff_arm64.tar.xz -C /tmp/x64
+          tar -xJf /tmp/ff_armhf.tar.xz -C /tmp/xhf
+          cp /tmp/x64/ffmpeg-*-arm64-static/ffmpeg ./ffmpeg_arm64
+          cp /tmp/xhf/ffmpeg-*-armhf-static/ffmpeg ./ffmpeg_armhf
           chmod +x ./ffmpeg_arm64 ./ffmpeg_armhf
-          ./ffmpeg_arm64 -version | head -1 || true   # informational
+          ls -lh ./ffmpeg_arm64 ./ffmpeg_armhf
 
       - name: Build multi-ABI APK (debug)
         run: buildozer -v android debug

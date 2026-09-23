@@ -12,7 +12,9 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    # ubuntu-22.04: buildozer's officially supported base. On ubuntu-latest the
+    # system Python is 3.14 and p4a's internal venv pip is broken there.
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
 
     steps:
@@ -59,7 +61,10 @@ jobs:
           ls -lh ./ffmpeg_arm64 ./ffmpeg_armhf
 
       - name: Build APK
-        run: buildozer -v android debug
+        run: |
+          python3 --version
+          which python3
+          buildozer -v android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

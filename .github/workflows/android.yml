@@ -35,6 +35,14 @@ jobs:
             libncurses-dev libncursesw5-dev cmake libffi-dev libssl-dev \
             build-essential ccache libltdl-dev
 
+      - name: Select Java 17
+        # ubuntu-22.04 defaults JAVA_HOME to Java 11, but the Android Gradle
+        # plugin requires Java 17. Point both JAVA_HOME and PATH at the JDK 17
+        # we installed above.
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> "$GITHUB_ENV"
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> "$GITHUB_PATH"
+
       - name: Install buildozer + Cython
         run: |
           python -m pip install --upgrade pip setuptools wheel
@@ -62,8 +70,9 @@ jobs:
 
       - name: Build APK
         run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version 2>&1 | head -1
           python3 --version
-          which python3
           buildozer -v android debug
 
       - name: Upload APK artifact

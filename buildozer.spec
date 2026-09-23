@@ -64,3 +64,9 @@ android.allow_backup = True
 
 # (str) python-for-android bootstrap: sdl2 = Kivy GUI (start/stop buttons)
 p4a.bootstrap = sdl2
+
+# Pin a python-for-android release whose host Python is 3.11. The current
+# default (v2026.x) builds host CPython 3.14.2, whose pip is broken inside
+# p4a's internal venv -> "cannot import name 'BuildDependencyInstallError'".
+p4a.fork = kivy
+p4a.branch = v2024.01.21

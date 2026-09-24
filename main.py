@@ -146,11 +146,39 @@ def _android_native_lib(name):
     return None
 
 
+def _probe_binary(path):
+    """One-line description of whether `path` can actually be executed."""
+    import subprocess
+
+    parts = []
+    try:
+        st = os.stat(path)
+        parts.append("mode=%o" % (st.st_mode & 0o777))
+    except Exception as exc:
+        parts.append("stat=ERR(%r)" % exc)
+    parts.append("X_OK=%s" % os.access(path, os.X_OK))
+    try:
+        proc = subprocess.run(
+            [path, "-version"], capture_output=True, text=True, timeout=20
+        )
+        first = ((proc.stdout or "") + (proc.stderr or "")).strip().split("\n")[0][:90]
+        parts.append("rc=%s out=%r" % (proc.returncode, first))
+    except Exception as exc:
+        parts.append("EXEC FAILED: %r" % exc)
+    return " ".join(parts)
+
+
 def _setup_ffmpeg(abi):
     # Preferred: ffmpeg shipped as a native lib. On Android 10+ the app data
     # directory is noexec, so a binary stored there cannot be run at all.
     lib = _android_native_lib("libffmpeg.so")
     if lib:
+        # Native libs can be installed without the exec bit.
+        try:
+            os.chmod(lib, 0o755)
+        except OSError:
+            pass
+        _log("ffmpeg probe: " + _probe_binary(lib))
         os.environ.setdefault("RECLIP_FFMPEG", lib)
         return lib
 

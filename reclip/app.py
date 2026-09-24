@@ -113,7 +113,16 @@ def log_error(title, detail=""):
     _err_lines.append("====== %s @ %s ======" % (title, time.strftime("%Y-%m-%d %H:%M:%S")))
     if detail:
         _err_lines.append(detail)
-    _mirror_error("\n".join(_err_lines) + "\n")
+    text = "\n".join(_err_lines) + "\n"
+
+    # MediaStore must run on the Kivy/main thread: this is called from the
+    # download worker thread, where jnius may not be attached.
+    try:
+        from kivy.clock import Clock
+
+        Clock.schedule_once(lambda _dt: _mirror_error(text), 0)
+    except Exception:
+        _mirror_error(text)
 
 
 def ytdlp_opts(**extra):
@@ -135,19 +144,25 @@ def run_download(job_id, url, format_choice, format_id):
 
     job = jobs[job_id]
     outtmpl = os.path.join(DOWNLOAD_DIR, "%s.%%(ext)s" % job_id)
-    opts = ytdlp_opts(outtmpl=outtmpl)
 
-    if format_choice == "audio":
-        opts["format"] = "bestaudio/best"
-        opts["postprocessors"] = [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}
-        ]
-    elif format_id:
-        opts["format"] = "%s+bestaudio/best" % format_id
-        opts["merge_output_format"] = "mp4"
-    else:
-        opts["format"] = "bestvideo+bestaudio/best"
-        opts["merge_output_format"] = "mp4"
+    def build_opts(use_ffmpeg):
+        opts = ytdlp_opts(outtmpl=outtmpl)
+        if format_choice == "audio":
+            opts["format"] = "bestaudio/best"
+            if use_ffmpeg:
+                opts["postprocessors"] = [
+                    {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}
+                ]
+        elif use_ffmpeg:
+            opts["format"] = (
+                ("%s+bestaudio/best" % format_id) if format_id
+                else "bestvideo+bestaudio/best"
+            )
+            opts["merge_output_format"] = "mp4"
+        else:
+            # No merging available -> a single progressive stream still works.
+            opts["format"] = "best[ext=mp4]/best"
+        return opts
 
     try:
         import contextlib
@@ -155,9 +170,26 @@ def run_download(job_id, url, format_choice, format_id):
         # Redirect both streams for the whole yt-dlp session: on Android they
         # can be plain strings, and yt-dlp writes warnings/errors to stderr.
         devnull = open(os.devnull, "w")
-        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+        info = None
+        last_exc = None
+        for use_ffmpeg in (True, False):
+            try:
+                with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                    with yt_dlp.YoutubeDL(build_opts(use_ffmpeg)) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if use_ffmpeg and "ffmpeg" in str(exc).lower():
+                    log_error(
+                        "FFMPEG UNAVAILABLE - retrying without merging",
+                        traceback.format_exc(),
+                    )
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, "%s.*" % job_id))
         if not files:

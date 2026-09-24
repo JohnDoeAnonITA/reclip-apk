@@ -309,15 +309,30 @@ class ReClipHandler(BaseHTTPRequestHandler):
 
         ctype = CONTENT_TYPES.get(os.path.splitext(path)[1].lower(),
                                   "application/octet-stream")
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(size))
+
+        # HTTP headers are latin-1: a non-ASCII filename (e.g. an emoji in the
+        # video title) makes send_header raise UnicodeEncodeError, so the
+        # response is never sent and the client reports
+        # "Remote end closed connection without response".
+        safe = "download"
         if download_name:
-            safe = download_name.replace('"', "")
-            self.send_header(
-                "Content-Disposition", 'attachment; filename="%s"' % safe
-            )
-        self.end_headers()
+            ascii_name = download_name.encode("ascii", "ignore").decode("ascii")
+            ascii_name = ascii_name.replace('"', "").strip()
+            if ascii_name:
+                safe = ascii_name
+
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(size))
+            if download_name:
+                self.send_header(
+                    "Content-Disposition", 'attachment; filename="%s"' % safe
+                )
+            self.end_headers()
+        except Exception:
+            log_error("SERVE HEADERS FAILED", traceback.format_exc())
+            return
         if self.command == "HEAD":
             return
         try:

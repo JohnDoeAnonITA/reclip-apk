@@ -48,6 +48,9 @@ CONTENT_TYPES = {
 }
 
 jobs = {}
+# Job ids the in-page "Save" button asked to save. The Kivy app polls
+# /api/save-pending and performs the real download via DownloadManager.
+pending_saves = []
 
 
 def ensure_streams():
@@ -302,6 +305,12 @@ class ReClipHandler(BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(TEMPLATES_DIR, "index.html"))
         if path.startswith("/static/"):
             return self._serve_file(os.path.join(STATIC_DIR, os.path.basename(path)))
+        if path == "/api/save-pending":
+            if pending_saves:
+                job_id = pending_saves.pop(0)
+                job = jobs.get(job_id) or {}
+                return self._json({"id": job_id, "filename": job.get("filename")})
+            return self._json({})
         if path == "/api/last":
             done = [(k, v) for k, v in jobs.items()
                     if v.get("status") == "done" and v.get("file")]
@@ -334,6 +343,14 @@ class ReClipHandler(BaseHTTPRequestHandler):
             return self._api_playlist(data)
         if path == "/api/download":
             return self._api_download(data)
+        if path.startswith("/api/save/"):
+            job_id = path.rsplit("/", 1)[-1]
+            job = jobs.get(job_id)
+            if not job or job.get("status") != "done":
+                return self._json({"error": "File not ready"}, 404)
+            if job_id not in pending_saves:
+                pending_saves.append(job_id)
+            return self._json({"ok": True})
         return self._json({"error": "Not found"}, 404)
 
     def _api_info(self, data):

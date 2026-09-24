@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-closebtn"
+BUILD_ID = "2026-09-24-savepoll"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -332,6 +332,30 @@ class Root(BoxLayout):
         self.save_btn.bind(on_release=self.save_last)
         self.add_widget(self.save_btn)
 
+    def _poll_saves(self, _dt):
+        """The in-page "Save" button cannot download inside a WebView, so it
+        asks our own server; we pick the request up here and download it with
+        Android's DownloadManager."""
+        if self.server is None:
+            return
+        import json as _json
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                "http://%s:%s/api/save-pending" % (HOST, PORT), timeout=4
+            ) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return
+        job_id = data.get("id")
+        if not job_id:
+            return
+        name = data.get("filename") or "reclip_download"
+        self._enqueue_download(
+            "http://%s:%s/api/file/%s" % (HOST, PORT, job_id), name
+        )
+
     def save_last(self, *_):
         import json as _json
         import urllib.request
@@ -389,6 +413,7 @@ class Root(BoxLayout):
             self.server = ServerThread()
             self.server.start()
             _log("server started on %s:%s" % (HOST, PORT))
+            Clock.schedule_interval(self._poll_saves, 1.5)
         except Exception:
             tb = traceback.format_exc()
             _log("SERVER START FAILED:\n" + tb)
@@ -400,6 +425,10 @@ class Root(BoxLayout):
     def stop_server(self, *_):
         if self.server is None:
             return
+        try:
+            Clock.unschedule(self._poll_saves)
+        except Exception:
+            pass
         try:
             self.server.stop()
         except Exception:
@@ -526,17 +555,23 @@ class Root(BoxLayout):
                 wv.setDownloadListener(self._dl_listener)
             # Do NOT cover the whole screen: leave a strip at the top where the
             # Kivy "close" button stays visible and tappable.
-            try:
-                FrameLayout = autoclass("android.widget.FrameLayout")
-                density = activity.getResources().getDisplayMetrics().density
-                params = FrameLayout.LayoutParams(-1, -1)
-                params.topMargin = int(116 * density)
-            except Exception:
-                _log("margin params failed:\n" + traceback.format_exc())
-                params = LayoutParams(-1, -1)
+            params = LayoutParams(-1, -1)
 
             wv.loadUrl(url)
-            activity.addContentView(wv, params)
+            # Put the WebView in our own FrameLayout: nested-class LayoutParams
+            # need the "$" form, and the outer parent may not be a FrameLayout.
+            try:
+                FrameLayout = autoclass("android.widget.FrameLayout")
+                FLParams = autoclass("android.widget.FrameLayout$LayoutParams")
+                density = activity.getResources().getDisplayMetrics().density
+                container = FrameLayout(activity)
+                inner = FLParams(-1, -1)
+                inner.topMargin = int(116 * density)
+                container.addView(wv, inner)
+                activity.addContentView(container, params)
+            except Exception:
+                _log("top strip failed:\n" + traceback.format_exc())
+                activity.addContentView(wv, params)
             try:
                 wv.setFocusableInTouchMode(True)
                 wv.requestFocus()

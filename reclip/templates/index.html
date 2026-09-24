@@ -682,14 +682,19 @@
       }, 1000);
     }
 
-    function saveCard(idx) {
+    async function saveCard(idx) {
       const c = cardData[idx];
       if (!c.jobId) return;
-      // A detached <a download> click is not reliably routed to the Android
-      // WebView download path. Do a real navigation instead: the server sends
-      // Content-Disposition: attachment, which the WebView hands to the app's
-      // DownloadListener (saved via DownloadManager).
-      window.location.href = `/api/file/${c.jobId}`;
+      // An Android WebView cannot download by itself. Ask our own server to
+      // schedule the save; the app polls /api/save-pending and downloads the
+      // file with Android's DownloadManager (no navigation -> no error page).
+      try {
+        const res = await fetch(`/api/save/${c.jobId}`, { method: 'POST' });
+        alert(res.ok ? 'Salvataggio avviato: controlla Download'
+                     : 'Salvataggio non disponibile');
+      } catch (e) {
+        alert('Errore: ' + e.message);
+      }
     }
 
     async function dlAll() {

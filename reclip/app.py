@@ -21,6 +21,7 @@ import glob
 import json
 import os
 import threading
+import traceback
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, unquote
@@ -67,6 +68,52 @@ def ensure_streams():
 
 
 ensure_streams()
+
+# Errors are mirrored to /sdcard/Download/reclip_error.log (MediaStore) so they
+# are readable from the phone *and* by the developer.
+_ERROR_NAME = "reclip_error.log"
+_err_lines = []
+_err_uri = None
+
+
+def _mirror_error(text):
+    global _err_uri
+    try:
+        from jnius import autoclass
+
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        resolver = activity.getContentResolver()
+        MS = autoclass("android.provider.MediaStore")
+        CV = autoclass("android.content.ContentValues")
+        Cols = autoclass("android.provider.MediaStore$MediaColumns")
+        Build = autoclass("android.os.Build")
+
+        if _err_uri is None:
+            vals = CV()
+            vals.put(Cols.DISPLAY_NAME, _ERROR_NAME)
+            vals.put(Cols.MIME_TYPE, "text/plain")
+            if Build.VERSION.SDK_INT >= 29:
+                vals.put(Cols.RELATIVE_PATH, "Download")
+            _err_uri = resolver.insert(MS.Downloads.EXTERNAL_CONTENT_URI, vals)
+        if _err_uri is None:
+            return
+        stream = resolver.openOutputStream(_err_uri, "wt")
+        if stream is None:
+            return
+        stream.write(text.encode("utf-8"))
+        stream.flush()
+        stream.close()
+    except Exception:
+        pass
+
+
+def log_error(title, detail=""):
+    import time
+
+    _err_lines.append("====== %s @ %s ======" % (title, time.strftime("%Y-%m-%d %H:%M:%S")))
+    if detail:
+        _err_lines.append(detail)
+    _mirror_error("\n".join(_err_lines) + "\n")
 
 
 def ytdlp_opts(**extra):
@@ -138,12 +185,11 @@ def run_download(job_id, url, format_choice, format_id):
 
         job["file"] = chosen
         job["status"] = "done"
-    except Exception:
-        import traceback as _tb
-
+    except Exception as exc:
+        log_error("DOWNLOAD FAILED", traceback.format_exc())
         job["status"] = "error"
-        # Keep the real cause visible (truncated traceback).
-        job["error"] = _tb.format_exc()[-700:]
+        # Short, readable message in the UI (the full traceback is in the log).
+        job["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:300])
 
 
 class ReClipHandler(BaseHTTPRequestHandler):
@@ -260,6 +306,7 @@ class ReClipHandler(BaseHTTPRequestHandler):
                 "formats": formats,
             })
         except Exception as exc:
+            log_error("INFO FAILED", traceback.format_exc())
             return self._json({"error": str(exc)}, 400)
 
     def _api_playlist(self, data):
@@ -281,6 +328,7 @@ class ReClipHandler(BaseHTTPRequestHandler):
                     urls.append(value)
             return self._json({"urls": urls})
         except Exception as exc:
+            log_error("PLAYLIST FAILED", traceback.format_exc())
             return self._json({"error": str(exc)}, 400)
 
     def _api_download(self, data):

@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-logbtn"
+BUILD_ID = "2026-09-24-it"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []

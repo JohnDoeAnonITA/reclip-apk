@@ -36,7 +36,7 @@ STRINGS = {
         "start": "Avvia server",
         "stop": "Ferma server",
         "open": "Apri interfaccia web",
-        "close": T("close"),
+        "close": "< Chiudi interfaccia web",
         "export": "Esporta log di debug",
         "stopped": "Server fermo",
         "starting": "Avvio in corso...",

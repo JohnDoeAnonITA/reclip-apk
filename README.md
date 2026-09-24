@@ -8,8 +8,8 @@
 
 # ReClip for Android
 
-Android APK build of **ReClip**, with a native GUI, an embedded web interface and
-ffmpeg compiled for Android (video/audio merging and MP3 conversion working).
+Download video and audio from 1000+ sites (YouTube, TikTok, Instagram,
+Twitter/X, Reddit, Facebook, Vimeo, Twitch…) straight to your phone.
 
 > ## ⚠️ Derivative work
 >
@@ -18,95 +18,61 @@ ffmpeg compiled for Android (video/audio merging and MP3 conversion working).
 > licence (Copyright (c) 2026).
 >
 > All credit for the original idea and application belongs to the **original
-> author**. What was added here is only the *Android packaging*: Kivy GUI,
-> in-app WebView, a Flask-free backend, native ffmpeg and the build pipeline.
+> author**. What was added here is only the *Android packaging*.
 > The original `reclip/LICENSE` (MIT) is kept untouched.
 
 ---
 
 ## What it does
 
-ReClip downloads video/audio from 1000+ sites (YouTube, TikTok, Instagram,
-Twitter/X, Reddit, Facebook, Vimeo, Twitch…). This version wraps it in a
-standalone Android app:
+- **Web interface inside the app** — no browser, no server to set up
+- **Real progress bar**: percentage, MB, speed and ETA
+- **Saves directly to `Download/`**
+- **Full quality video** (1080p/4K) and **MP3** audio
+- **Two versions**: 🇬🇧 English and 🇮🇹 Italian
 
-- **Local HTTP server** started automatically on launch
-- **Kivy control panel**: *Start/Stop server*, *Open/Close web interface*
-- **In-app web UI** (native WebView) with a real **progress bar**
-  (percentage, MB, speed, ETA)
-- **Saves into `Download/`** (MediaStore; on Android ≤ 9 a direct file write)
-- **ffmpeg 7.1 built with the NDK** → 1080p/4K merging and **MP3** (libmp3lame)
-- **Export debug logs** button to retrieve the internal logs when needed
-- Ships in **two variants**: 🇬🇧 English and 🇮🇹 Italian
+## The two versions
 
-## Two separate APKs
-
-| Variant | Package | App name | Web UI | GUI |
-|---|---|---|---|---|
-| EN | `com.reclip.reclip` | ReClip | English | English |
-| IT | `com.reclipit.reclipit` | ReClip IT | Italiano | Italiano |
-
-Different package names → both apps **coexist** on the same device.
-
-Requirements: **Android 7.0+** (min API 24), **arm64-v8a** or **armeabi-v7a**.
-Installation from "unknown sources" (APK outside the Play Store).
-
-## Build
-
-Building happens on **GitHub Actions** (x86_64 runners). The workflow is
-**manual**:
-
-```
-Actions → Build ReClip APK → Run workflow → variant: all | en | it
-```
-
-It produces **release APKs signed** with a dedicated keystore (read from
-repository secrets) and publishes them as artifacts (+ release).
-
-### Why CI and not a local build
-
-The APK **cannot** be built on an arm64 host: the Android NDK and
-python-for-android only exist for **x86_64**. The NDK is a *cross-compiler*: it
-runs on x86_64 and emits ARM code for the phone.
-
-## Layout
-
-```
-main.py                 entrypoint: Kivy GUI + WebView + file saving
-buildozer.spec          python-for-android configuration (sdl2 bootstrap)
-reclip/                 ReClip source (adapted for Android)
-  app.py                backend rewritten with the stdlib only (no Flask)
-  templates/index.html     web UI (English)
-  templates/index_it.html  web UI (Italian)
-docs/                   banner and logo for this README
-.github/workflows/      build pipeline (EN/IT matrix)
-libs/<abi>/libffmpeg.so native ffmpeg+ffprobe (built in CI, not in the repo)
-```
-
-## Technical differences from upstream
-
-Behaviour and interface are ReClip's; the Android packaging required some
-changes:
-
-| Aspect | Upstream | Here |
+| Version | App name | Interface |
 |---|---|---|
-| HTTP backend | Flask | **stdlib `http.server`** (Flask/Werkzeug cannot be installed reliably with p4a) |
-| yt-dlp | CLI executable | **in-process Python library** (there is no `python` binary on Android) |
-| ffmpeg | system binary | **built with the NDK**, shipped as a native library (the app data dir is `noexec`) |
-| UI | browser | **in-app WebView** + Kivy GUI |
-| Language | English | **EN and IT** (chosen at build time) |
+| 🇬🇧 English | **ReClip** | English |
+| 🇮🇹 Italiano | **ReClip IT** | Italiano |
 
-Additionally the manifest gets `android:usesCleartextTraffic="true"`: the WebView
-loads `http://127.0.0.1` and Android blocks cleartext HTTP for apps with
-`targetSdk ≥ 28`.
+They have different package names, so you can **install both** side by side.
+
+## Installation
+
+**Requirements:** Android 7.0 or newer, arm64 or armeabi-v7a device.
+
+1. Download the APK you want from the [**Releases**](../../releases) page
+   (`reclip-en-release-signed.apk` or `reclip-it-release-signed.apk`).
+2. Open it. Android will warn that installation from this source is not allowed.
+3. Allow it, then install:
+   - **Stock Android / Motorola:** *Settings → Apps → Special app access →
+     Install unknown apps* → pick the app you are installing from (browser,
+     Files, messaging app) → **Allow**
+   - **Samsung:** *Settings → Apps → ⋮ (top right) → Special access →
+     Install unknown apps* → pick the app → **Allow**
+4. If Play Protect shows a warning, choose **Install anyway** (the app is not
+   from the Play Store).
+5. Open **ReClip**. The server starts by itself — just tap
+   **Open web interface**.
+
+> Already had an older **debug** build? Uninstall it first: it is signed with a
+> different key, so it cannot be updated in place. Once you are on a release
+> build, updates install over it without uninstalling.
+
+## Building from source
+
+See [**BUILD.md**](BUILD.md).
 
 ## Known limitations
 
 - **Personal use**: downloading from third-party platforms may violate their
   terms of service. What you download is up to you.
 - Saving goes through the app (an Android WebView cannot download on its own).
-- Diagnostic logs stay in the app's **private directory**; they are exported only
-  on request via the *Export debug logs* button.
+- Diagnostic logs are kept in the app's private storage and exported only on
+  request through the **Export debug logs** button.
 
 ## Licence and credits
 

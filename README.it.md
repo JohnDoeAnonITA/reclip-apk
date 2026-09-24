@@ -8,8 +8,8 @@
 
 # ReClip for Android
 
-APK Android di **ReClip**, con GUI nativa, interfaccia web integrata e ffmpeg
-compilato per Android (merge video/audio e conversione MP3 funzionanti).
+Scarica video e audio da oltre 1000 siti (YouTube, TikTok, Instagram,
+Twitter/X, Reddit, Facebook, Vimeo, Twitch…) direttamente sul telefono.
 
 > ## ⚠️ Opera derivata
 >
@@ -18,95 +18,61 @@ compilato per Android (merge video/audio e conversione MP3 funzionanti).
 > (Copyright (c) 2026).
 >
 > Il merito dell'idea e dell'applicazione originale è **interamente dell'autore
-> originale**. Qui è stato aggiunto solo il *packaging Android*: GUI Kivy,
-> WebView in-app, backend senza Flask, ffmpeg nativo e pipeline di build.
+> originale**. Qui è stato aggiunto solo il *packaging Android*.
 > Il file `reclip/LICENSE` (MIT) è mantenuto intatto.
 
 ---
 
 ## Cosa fa
 
-ReClip scarica video/audio da oltre 1000 siti (YouTube, TikTok, Instagram,
-Twitter/X, Reddit, Facebook, Vimeo, Twitch…). Questa versione la incapsula in
-un'app Android autonoma:
+- **Interfaccia web dentro l'app** — niente browser, niente server da configurare
+- **Barra di avanzamento reale**: percentuale, MB, velocità ed ETA
+- **Salva direttamente in `Download/`**
+- **Video a piena qualità** (1080p/4K) e audio **MP3**
+- **Due versioni**: 🇬🇧 inglese e 🇮🇹 italiana
 
-- **Server HTTP locale** avviato automaticamente all'apertura
-- **Pannello di controllo** Kivy: *Avvia/Ferma server*, *Apri/Chiudi interfaccia web*
-- **Interfaccia web in-app** (WebView nativa) con **barra di avanzamento** reale
-  (percentuale, MB, velocità, ETA)
-- **Salvataggio in `Download/`** (MediaStore; su Android ≤ 9 scrittura diretta)
-- **ffmpeg 7.1 compilato col NDK** → merge 1080p/4K e **MP3** (libmp3lame)
-- Pulsante **Esporta log di debug** per recuperare i log interni quando servono
-- Disponibile in **due varianti**: 🇬🇧 inglese e 🇮🇹 italiana
+## Le due versioni
 
-## Due APK separati
-
-| Variante | Package | Nome app | UI web | GUI |
-|---|---|---|---|---|
-| EN | `com.reclip.reclip` | ReClip | English | English |
-| IT | `com.reclipit.reclipit` | ReClip IT | Italiano | Italiano |
-
-Package diversi → le due app **convivono** sullo stesso dispositivo.
-
-Requisiti: **Android 7.0+** (min API 24), **arm64-v8a** o **armeabi-v7a**.
-Installazione da "origini sconosciute" (APK fuori dal Play Store).
-
-## Build
-
-La compilazione avviene su **GitHub Actions** (runner x86_64). Il workflow è
-**manuale**:
-
-```
-Actions → Build ReClip APK → Run workflow → variant: all | en | it
-```
-
-Produce APK **release firmati** con un keystore dedicato (letto dai repository
-secrets) e li pubblica come artifact (+ release).
-
-### Perché la CI e non in locale
-
-L'APK **non può** essere compilato su un host arm64: Android NDK e
-python-for-android esistono solo per **x86_64**. Il NDK è un *cross-compiler*:
-gira su x86_64 e genera codice ARM per il telefono.
-
-## Struttura
-
-```
-main.py                 entrypoint: GUI Kivy + WebView + salvataggio file
-buildozer.spec          configurazione python-for-android (bootstrap sdl2)
-reclip/                 sorgente ReClip (adattato per Android)
-  app.py                backend riscritto con la sola stdlib (niente Flask)
-  templates/index.html     UI web (inglese)
-  templates/index_it.html  UI web (italiano)
-docs/                   banner e logo per questo README
-.github/workflows/      pipeline di build (matrix EN/IT)
-libs/<abi>/libffmpeg.so ffmpeg+ffprobe nativi (generati in CI, non nel repo)
-```
-
-## Differenze tecniche rispetto all'upstream
-
-Il comportamento e l'interfaccia sono quelli di ReClip; il *packaging* Android
-ha richiesto alcune modifiche:
-
-| Aspetto | Upstream | Qui |
+| Versione | Nome app | Interfaccia |
 |---|---|---|
-| Backend HTTP | Flask | **stdlib `http.server`** (Flask/Werkzeug non sono installabili in modo affidabile con p4a) |
-| yt-dlp | eseguibile CLI | **libreria Python in-process** (su Android non esiste un binario `python`) |
-| ffmpeg | binario di sistema | **compilato col NDK**, spedito come libreria nativa (la data dir dell'app è `noexec`) |
-| UI | browser | **WebView in-app** + GUI Kivy |
-| Lingua | inglese | **EN e IT** (scelta in build) |
+| 🇬🇧 English | **ReClip** | Inglese |
+| 🇮🇹 Italiano | **ReClip IT** | Italiano |
 
-In più, nel manifest viene aggiunto `android:usesCleartextTraffic="true"`:
-la WebView carica `http://127.0.0.1` e Android blocca l'HTTP in chiaro per le
-app con `targetSdk ≥ 28`.
+Hanno package diversi, quindi puoi **installarle entrambe** sullo stesso telefono.
+
+## Installazione
+
+**Requisiti:** Android 7.0 o superiore, dispositivo arm64 o armeabi-v7a.
+
+1. Scarica l'APK che ti interessa dalla pagina [**Releases**](../../releases)
+   (`reclip-it-release-signed.apk` o `reclip-en-release-signed.apk`).
+2. Aprilo. Android avviserà che l'installazione da questa origine non è permessa.
+3. Consenti l'installazione e procedi:
+   - **Android stock / Motorola:** *Impostazioni → App → Accesso speciale →
+     Installa app sconosciute* → scegli l'app da cui stai installando (browser,
+     File, app di messaggistica) → **Consenti**
+   - **Samsung:** *Impostazioni → App → ⋮ (in alto a destra) → Accesso speciale →
+     Installa app sconosciute* → scegli l'app → **Consenti**
+4. Se Play Protect mostra un avviso, scegli **Installa comunque** (l'app non
+   viene dal Play Store).
+5. Apri **ReClip**. Il server parte da solo — ti basta toccare
+   **Apri interfaccia web**.
+
+> Hai già una vecchia versione **debug** installata? Disinstallala prima: è
+> firmata con una chiave diversa e non può essere aggiornata. Una volta passato
+> a una versione release, gli aggiornamenti si sovrascrivono senza disinstallare.
+
+## Compilare dal sorgente
+
+Vedi [**BUILD.md**](BUILD.md).
 
 ## Limitazioni note
 
 - **Uso personale**: il download da piattaforme terze può violare i loro termini
   di servizio. Valuta tu cosa scaricare.
 - Il salvataggio passa dall'app (una WebView Android non può scaricare da sola).
-- I log diagnostici restano nella **cartella privata dell'app**; si esportano
-  solo su richiesta col pulsante *Esporta log di debug*.
+- I log diagnostici restano nella memoria privata dell'app e si esportano solo
+  su richiesta col pulsante **Esporta log di debug**.
 
 ## Licenza e crediti
 

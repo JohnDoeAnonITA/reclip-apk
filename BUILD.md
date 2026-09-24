@@ -1,95 +1,132 @@
-# ReClip → APK (buildozer / python-for-android)
+# Compilare ReClip for Android dal sorgente
 
-Single **multi-ABI ("fat") shareable APK** that runs the ReClip Flask backend
-**on the phone** and shows the UI in a native WebView pointed at
-`http://127.0.0.1:<port>/`.
+Guida tecnica per chi vuole ricompilare l'APK. Per l'installazione normale vedi
+il [README](README.md).
 
-## Architectures
+---
 
-| ABI | Devices | Bundled ffmpeg |
-|---|---|---|
-| `arm64-v8a` | all modern phones (2016+) | `ffmpeg_arm64` |
-| `armeabi-v7a` | older 32-bit ARM devices | `ffmpeg_armhf` |
-| `x86` / `x86_64` | **emulator only** — no real phones | not bundled (add only for emulator testing) |
+## 1. Come si compila: GitHub Actions
 
-One APK contains both ABIs; Android installs the right one automatically.
-`main.py` detects the running ABI (`android.os.Build.SUPPORTED_ABIS`) and
-selects the matching ffmpeg binary.
-
-## Why the build must happen on x86_64
-
-The Android NDK and python-for-android only provide **x86_64** host toolchains.
-The APK is *cross-compiled*: the compiler runs on x86_64 and produces the ARM
-code above. An arm64 host (PRoot/Termux) **cannot** run the NDK, so `buildozer`
-fails there regardless of configuration.
-
-→ Build on an x86_64 Linux machine, or just push to GitHub (CI below).
-
-## Layout
+La build gira su **GitHub Actions** ed è **manuale**:
 
 ```
-main.py                 entrypoint: writable dir + per-ABI ffmpeg + Flask server
-buildozer.spec          p4a bootstrap = webview, archs = arm64-v8a, armeabi-v7a
-reclip/                 patched ReClip source (app.py made portable)
-  app.py                DOWNLOAD_DIR + yt-dlp/ffmpeg configurable via env
-.github/workflows/android.yml   CI build on an x86_64 runner
-ffmpeg_arm64            (added by CI) static ffmpeg for arm64-v8a
-ffmpeg_armhf            (added by CI) static ffmpeg for armeabi-v7a
+Actions → Build ReClip APK → Run workflow → variant: all | en | it
 ```
 
-## Build via GitHub Actions (recommended)
+| Variante | Package | Nome | UI web | GUI |
+|---|---|---|---|---|
+| `en` | `com.reclip.reclip` | ReClip | inglese | inglese |
+| `it` | `com.reclipit.reclipit` | ReClip IT | italiano | italiano |
 
-1. Push the contents of this directory to a repo (root).
-2. The `Build ReClip APK` workflow runs on push / manually.
-3. Download `bin/*.apk` from the run's **Artifacts**.
-4. Share it — users must allow installation from unknown sources.
+Produce **APK release firmati** e li pubblica come artifact e nella Release.
 
-Debug-signed (fine for personal sharing). For a release build add a keystore
-and run `buildozer android release`.
+### Perché serve un host x86_64
 
-## Build locally (x86_64 Linux only)
+Il **NDK Android e python-for-android esistono solo per x86_64**. Il NDK è un
+*cross-compiler*: gira su x86_64 e genera codice ARM per il telefono. Su un host
+arm64 (Termux, PRoot, Raspberry) **non è compilabile** — non è una questione di
+configurazione, mancano proprio i binari del toolchain.
+
+## 2. Secret richiesti nel repository
+
+| Secret | Contenuto |
+|---|---|
+| `KEYSTORE_B64` | keystore di release, base64 (`base64 -w0 app.keystore`) |
+| `KEYSTORE_PASS` | password del keystore |
+| `KEYALIAS` | alias della chiave (es. `reclip`) |
+| `KEYALIAS_PASS` | password della chiave |
+
+Senza questi secret la pipeline produce comunque un APK, ma **non firmato** (non
+installabile). Il keystore va conservato: senza, non si possono firmare
+aggiornamenti dell'app già installata.
+
+## 3. Cosa fa la pipeline (`.github/workflows/android.yml`)
+
+1. **setup** — traduce l'input `variant` in una matrix di build
+2. **checkout** + *Configure UI variant* — imposta `LANG` (lingua della GUI in
+   `main.py`), `package.name/domain` e `title` nel `buildozer.spec`; per la
+   variante IT copia `index_it.html` sopra `index.html`
+3. **clone + patch di python-for-android** — clona il branch `v2024.01.21` e
+   aggiunge `android:usesCleartextTraffic="true"` al template
+   `AndroidManifest.tmpl.xml` (la WebView carica `http://127.0.0.1` e Android
+   blocca il testo in chiaro con `targetSdk ≥ 28`)
+4. **ffmpeg**: cache (`actions/cache`) dei binari già compilati; se manca, li
+   compila col NDK (`arm64-v8a` + `armeabi-v7a`, con `libmp3lame`)
+5. **build APK** — `buildozer -v android release`
+6. **firma** — `zipalign` + `apksigner sign` con il keystore dai secret
+   (buildozer 1.5 non ha opzioni keystore)
+7. **upload** — artifact `reclip-apk-<variante>`
+
+## 4. Struttura del progetto
+
+```
+main.py                 entrypoint: GUI Kivy + WebView + salvataggio file
+buildozer.spec          configurazione python-for-android (bootstrap sdl2)
+reclip/                 sorgente ReClip adattato
+  app.py                backend con la sola stdlib (niente Flask)
+  templates/index.html     UI web inglese
+  templates/index_it.html  UI web italiana
+docs/                   banner e logo del README
+.github/workflows/      pipeline di build
+libs/<abi>/libffmpeg.so ffmpeg+ffprobe nativi (generati in CI, non nel repo)
+icon.png                icona dell'app (512×512)
+```
+
+Toolchain: **ubuntu-22.04**, Python 3.11, buildozer **1.5.0**, cython 0.29.36,
+python-for-android **v2024.01.21**, JDK 17, Android API 34, minAPI 24.
+
+## 5. Differenze tecniche rispetto all'upstream
+
+| Aspetto | Upstream | Qui | Perché |
+|---|---|---|---|
+| Backend HTTP | Flask | **stdlib `http.server`** | il recipe `flask` di p4a pinna Flask 2.0.3, incompatibile con Werkzeug 3.x; Flask 3.x non ha `setup.py` |
+| yt-dlp | eseguibile CLI | **libreria Python in-process** | su Android non esiste un binario `python` → `sys.executable` è vuoto |
+| ffmpeg | binario di sistema | **compilato col NDK**, come libreria nativa | il binario glibc viene ucciso da seccomp (`SIGSYS`); inoltre la data dir dell'app è `noexec` |
+| UI | browser | **WebView in-app** + GUI Kivy | app autonoma |
+| Salvataggio | download del browser | **MediaStore** (o scrittura diretta su API < 29) | una WebView Android non scarica da sola |
+| Lingua | inglese | **EN e IT** | scelta a build time (`LANG`) |
+
+## 6. Insidie già risolte (utili se si ricompila)
+
+- `android.entrypoint` è la **classe dell'Activity**, non il file Python
+- il container `kivy/buildozer` usa Python 3.14 → venv di p4a con pip rotto
+  (per questo si usa ubuntu-22.04 + Python 3.11)
+- la build release produce un **AAB** di default → serve
+  `android.release_artifact = apk`
+- le **classi annidate** jnius richiedono il `$` (`android.os.Build$VERSION`,
+  `android.provider.MediaStore$Downloads`)
+- l'header `Content-Disposition` è **latin-1**: un titolo con emoji faceva
+  fallire la risposta (`RemoteDisconnected`)
+- i log applicativi non vanno scritti in `Download/` (li vede l'utente):
+  restano nella memoria privata e si esportano su richiesta
+
+## 7. Compilare "a mano" (x86_64)
 
 ```bash
-sudo apt update && sudo apt install -y git zip unzip openjdk-17-jdk \
-  python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev \
-  libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+# prerequisiti (Debian/Ubuntu x86_64)
+sudo apt install -y git zip unzip openjdk-17-jdk python3-pip \
+  autoconf libtool pkg-config zlib1g-dev libncurses-dev cmake \
+  libffi-dev libssl-dev build-essential
 
-pip install --user buildozer cython
+pip install "buildozer==1.5.0" "cython==0.29.36"
 
-# bundle ffmpeg for both ABIs
-curl -L -o /tmp/a.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
-curl -L -o /tmp/b.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarmhf-gpl.tar.xz
-tar -xJf /tmp/a.tar.xz -C /tmp && tar -xJf /tmp/b.tar.xz -C /tmp
-cp /tmp/ffmpeg-master-latest-linuxarm64-gpl/bin/ffmpeg ./ffmpeg_arm64
-cp /tmp/ffmpeg-master-latest-linuxarmhf-gpl/bin/ffmpeg ./ffmpeg_armhf
-chmod +x ./ffmpeg_arm64 ./ffmpeg_armhf
+# opzionale: ffmpeg nativo (altrimenti la build lo compila da sola... in CI)
+# vedi lo step "Build Android-native ffmpeg/ffprobe (NDK)" nel workflow
 
-buildozer -v android debug      # first run downloads the SDK/NDK (~4 GB)
+buildozer -v android release      # primo run: scarica SDK/NDK (~4 GB)
 ```
 
-Or with Docker (x86_64):
+Per firmare l'APK prodotto:
 
 ```bash
-docker run --rm -it -v "$PWD":/app -w /app kivy/buildozer \
-  bash -c "curl -fL -o /tmp/a.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz && \
-           curl -fL -o /tmp/b.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarmhf-gpl.tar.xz && \
-           tar -xJf /tmp/a.tar.xz -C /tmp && tar -xJf /tmp/b.tar.xz -C /tmp && \
-           cp /tmp/ffmpeg-master-latest-linuxarm64-gpl/bin/ffmpeg ./ffmpeg_arm64 && \
-           cp /tmp/ffmpeg-master-latest-linuxarmhf-gpl/bin/ffmpeg ./ffmpeg_armhf && \
-           chmod +x ffmpeg_arm64 ffmpeg_armhf && buildozer -v android debug"
+BT=$HOME/.buildozer/android/platform/android-sdk/build-tools/*/   # ultima versione
+"$BT/zipalign" -f 4 bin/*release-unsigned.apk /tmp/aligned.apk
+"$BT/apksigner" sign --ks app.keystore --ks-key-alias reclip \
+  --ks-pass pass:LA_PASSWORD --key-pass pass:LA_PASSWORD \
+  --out bin/reclip-release-signed.apk /tmp/aligned.apk
 ```
 
-## Known risk points (expect to iterate on the first build)
+## 8. Licenza
 
-- **ffmpeg on Android**: yt-dlp shells out to an `ffmpeg` *executable*. We bundle
-  statically-linked arm ffmpeg binaries and pass `--ffmpeg-location`. If the
-  yt-dlp FFmpeg-Builds binary refuses to run on Android (glibc vs bionic), swap
-  in an Android-native static build (Termux `ffmpeg` package, or `ffmpeg-kit`).
-- **WebView port**: `main.py` listens on `--port` / `PORT` / `ANDROID_PORT`,
-  defaulting to the p4a webview bootstrap default (5000). Blank page → check the
-  port the bootstrap logs and match it.
-- **Background vs in-app**: with the `webview` bootstrap the server runs inside
-  the app process (stops when the app is closed). True background execution
-  requires a foreground service — a separate, larger effort.
-- **Storage**: downloads go to a writable app-private dir
-  (`RECLIP_DOWNLOAD_DIR`) and are served back via `/api/file/<id>`.
+Derivato di [ReClip](https://github.com/averygan/reclip) di averygan — **MIT**.
+Il testo originale è in `reclip/LICENSE`.

@@ -3,22 +3,20 @@
 Control panel:
   * "Avvia server"           -> starts ReClip's Flask server in a background thread
   * "Ferma server"           -> shuts it down cleanly
-  * "Apri interfaccia web"   -> opens the UI in an in-app WebView (native Android
-                                WebView overlaid on the Kivy surface). Press the
-                                device BACK button to close it and return to the
-                                control panel.
+  * "Apri interfaccia web"   -> opens the UI in an in-app WebView (BACK closes it)
 
-The server is ReClip's own Flask app (bundled in ./reclip/). It is started with
-Werkzeug's ``make_server`` so it can be stopped on demand.
+Diagnostics: every step is logged to /sdcard/Android/data/<pkg>/files/reclip_boot.log
+(visible over USB/MTP) and any Python exception is displayed on screen instead of
+silently closing the app.
 """
 
 import os
 import sys
 import threading
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Make the bundled reclip package importable (it lives in ./reclip/).
 sys.path.insert(0, os.path.join(HERE, "reclip"))
 
 HOST = "127.0.0.1"
@@ -26,10 +24,42 @@ PORT = 8899
 
 
 # --------------------------------------------------------------------------
+# Logging (to a user-reachable file + stdout/logcat)
+# --------------------------------------------------------------------------
+def _log_path():
+    # Prefer the external files dir: readable over USB/MTP.
+    try:
+        from jnius import autoclass
+
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        ext = activity.getExternalFilesDir(None)
+        if ext is not None:
+            return os.path.join(ext.getAbsolutePath(), "reclip_boot.log")
+    except Exception:
+        pass
+    base = os.environ.get("ANDROID_PRIVATE") or HERE
+    return os.path.join(base, "reclip_boot.log")
+
+
+def _log(msg):
+    try:
+        with open(_log_path(), "a") as handle:
+            handle.write(str(msg) + "\n")
+    except Exception:
+        pass
+    try:
+        print("[reclip] " + str(msg), file=sys.stdout, flush=True)
+    except Exception:
+        pass
+
+
+_log("=== boot start ===")
+
+
+# --------------------------------------------------------------------------
 # Portable environment (Android)
 # --------------------------------------------------------------------------
 def _writable_dir():
-    """Return a writable directory for downloaded media (Android sandbox)."""
     for base in (
         os.environ.get("ANDROID_PRIVATE"),
         os.environ.get("ANDROID_APP_PATH"),
@@ -48,7 +78,7 @@ def _writable_dir():
 
 def _primary_abi():
     try:
-        from jnius import autoclass  # Android only
+        from jnius import autoclass
 
         return str(autoclass("android.os.Build").SUPPORTED_ABIS[0])
     except Exception:
@@ -57,8 +87,6 @@ def _primary_abi():
         return platform.machine()
 
 
-# Only same-family fallbacks (an arm64 device may run the 32-bit arm build;
-# an x86_64 emulator must NOT pick an ARM binary).
 FFMPEG_CANDIDATES = {
     "arm64-v8a": ["ffmpeg_arm64", "ffmpeg_armhf"],
     "armeabi-v7a": ["ffmpeg_armhf"],
@@ -69,9 +97,7 @@ FFMPEG_CANDIDATES = {
 
 
 def _setup_ffmpeg(abi):
-    """Pick, chmod and register the bundled ffmpeg for this ABI."""
-    names = list(FFMPEG_CANDIDATES.get(abi, []))
-    names.append("ffmpeg")  # optional generic name
+    names = list(FFMPEG_CANDIDATES.get(abi, [])) + ["ffmpeg"]
     for name in names:
         path = os.path.join(HERE, name)
         if os.path.exists(path):
@@ -86,14 +112,13 @@ def _setup_ffmpeg(abi):
 
 os.environ.setdefault("RECLIP_DOWNLOAD_DIR", _writable_dir())
 os.environ.setdefault("RECLIP_YTDLP_MODULE", "1")
+_log("env ok, abi=" + _primary_abi())
 
 
 # --------------------------------------------------------------------------
-# Server control (start / stop)
+# Server control
 # --------------------------------------------------------------------------
 class ServerThread(threading.Thread):
-    """Runs the Flask app in a background thread; can be shut down."""
-
     def __init__(self):
         super().__init__(daemon=True)
         from werkzeug.serving import make_server
@@ -114,18 +139,23 @@ class ServerThread(threading.Thread):
 # --------------------------------------------------------------------------
 # Kivy UI
 # --------------------------------------------------------------------------
-from kivy.app import App
-from kivy.clock import Clock
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
+try:
+    from kivy.app import App
+    from kivy.clock import Clock
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.button import Button
+    from kivy.uix.label import Label
+    from kivy.uix.scrollview import ScrollView
+
+    _log("kivy imported ok")
+except Exception:
+    _log("KIVY IMPORT FAILED:\n" + traceback.format_exc())
+    raise
 
 
 class Root(BoxLayout):
     def __init__(self, **kwargs):
-        super().__init__(
-            orientation="vertical", padding="24dp", spacing="16dp", **kwargs
-        )
+        super().__init__(orientation="vertical", padding=24, spacing=16, **kwargs)
         self.server = None
         self._webview = None
         self._back_listener = None
@@ -133,21 +163,18 @@ class Root(BoxLayout):
         self.status = Label(text="Server fermo", size_hint_y=0.4, halign="center")
         self.add_widget(self.status)
 
-        self.start_btn = Button(text="Avvia server", font_size="20sp")
+        self.start_btn = Button(text="Avvia server", font_size=20)
         self.start_btn.bind(on_release=self.start_server)
         self.add_widget(self.start_btn)
 
-        self.stop_btn = Button(text="Ferma server", font_size="20sp", disabled=True)
+        self.stop_btn = Button(text="Ferma server", font_size=20, disabled=True)
         self.stop_btn.bind(on_release=self.stop_server)
         self.add_widget(self.stop_btn)
 
-        self.open_btn = Button(
-            text="Apri interfaccia web", font_size="20sp", disabled=True
-        )
+        self.open_btn = Button(text="Apri interfaccia web", font_size=20, disabled=True)
         self.open_btn.bind(on_release=self.open_ui)
         self.add_widget(self.open_btn)
 
-    # --- server actions ----------------------------------------------------
     def start_server(self, *_):
         if self.server is not None:
             return
@@ -155,8 +182,11 @@ class Root(BoxLayout):
         try:
             self.server = ServerThread()
             self.server.start()
-        except Exception as exc:  # pragma: no cover - device errors
-            self.status.text = f"Errore: {exc}"
+            _log("server started on %s:%s" % (HOST, PORT))
+        except Exception:
+            tb = traceback.format_exc()
+            _log("SERVER START FAILED:\n" + tb)
+            self.status.text = "Errore avvio:\n" + tb[-300:]
             self.server = None
             return
         Clock.schedule_once(lambda _dt: self._set_running(True), 0.6)
@@ -173,27 +203,25 @@ class Root(BoxLayout):
 
     def _set_running(self, running):
         self.status.text = (
-            f"Server attivo\nhttp://{HOST}:{PORT}" if running else "Server fermo"
+            "Server attivo\nhttp://%s:%s" % (HOST, PORT) if running else "Server fermo"
         )
         self.start_btn.disabled = running
         self.stop_btn.disabled = not running
         self.open_btn.disabled = not running
 
-    # --- in-app web view ---------------------------------------------------
     def open_ui(self, *_):
-        url = f"http://{HOST}:{PORT}/"
+        url = "http://%s:%s/" % (HOST, PORT)
         try:
             from android.runnable import run_on_ui_thread
             from jnius import PythonJavaClass, autoclass, java_method
         except Exception:
-            # Desktop fallback: external browser.
             import webbrowser
 
             webbrowser.open(url)
             return
 
         if self._webview is not None:
-            return  # already open
+            return
 
         WebView = autoclass("android.webkit.WebView")
         WebViewClient = autoclass("android.webkit.WebViewClient")
@@ -204,8 +232,6 @@ class Root(BoxLayout):
         outer = self
 
         class BackKeyListener(PythonJavaClass):
-            """Closes the WebView when the device BACK button is pressed."""
-
             __javainterfaces__ = ["android/view/View$OnKeyListener"]
             __javacontext__ = "app"
 
@@ -222,6 +248,7 @@ class Root(BoxLayout):
         try:
             self._back_listener = BackKeyListener()
         except Exception:
+            _log("back listener failed:\n" + traceback.format_exc())
             self._back_listener = None
 
         @run_on_ui_thread
@@ -234,7 +261,6 @@ class Root(BoxLayout):
             if self._back_listener is not None:
                 wv.setOnKeyListener(self._back_listener)
             wv.loadUrl(url)
-            # MATCH_PARENT == -1
             activity.addContentView(wv, LayoutParams(-1, -1))
             self._webview = wv
 
@@ -265,12 +291,23 @@ class Root(BoxLayout):
 
 class ReClipApp(App):
     def build(self):
-        self.title = "ReClip"
-        abi = _primary_abi()
-        ffmpeg = _setup_ffmpeg(abi)
-        print(f"[reclip] abi={abi} ffmpeg={ffmpeg}", flush=True)
-        return Root()
+        try:
+            abi = _primary_abi()
+            ffmpeg = _setup_ffmpeg(abi)
+            _log("build(): abi=%s ffmpeg=%s" % (abi, ffmpeg))
+            return Root()
+        except Exception:
+            tb = traceback.format_exc()
+            _log("BUILD FAILED:\n" + tb)
+            self.title = "ReClip - ERROR"
+            scroll = ScrollView()
+            scroll.add_widget(Label(text=tb, font_size=12))
+            return scroll
 
 
 if __name__ == "__main__":
-    ReClipApp().run()
+    try:
+        ReClipApp().run()
+    except Exception:
+        _log("RUN FAILED:\n" + traceback.format_exc())
+        raise

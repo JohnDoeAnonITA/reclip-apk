@@ -431,6 +431,8 @@
   <script>
     let currentFormat = 'video';
     let cardData = [];
+    // segnale: lo script principale e' stato interpretato
+    window.__reclipReady = true;
 
     function setFormat(btn) {
       document.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
@@ -758,7 +760,6 @@
       if (btn) { btn.disabled = false; btn.textContent = 'Download All'; }
     }
   
-    window.__reclipReady = true;
     </script>
 <div id="legacy-warn" style="display:none;max-width:620px;margin:40px auto;padding:20px;border:1px solid #c43d3d;border-radius:10px;background:rgba(196,61,61,0.06);color:#c43d3d;font-family:monospace;font-size:0.8rem;line-height:1.6">&#9888; The WebView on this device is too old to run the interface.<br>Update <b>Android System WebView</b> (or Chrome) from the Play Store, then reopen the app.</div>
 <script>

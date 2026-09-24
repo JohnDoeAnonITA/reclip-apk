@@ -104,11 +104,44 @@ def _sdk_int():
 # the "Esporta log di debug" button (see _publish_text below).
 
 
-def _publish_text(name, text):
-    """Write `text` into the public Download collection (MediaStore).
+def _legacy_public_dir():
+    """On API < 29 MediaStore.Downloads does not exist and apps may write
+    straight to /sdcard/Download (with WRITE_EXTERNAL_STORAGE granted)."""
+    return "/sdcard/Download"
 
+
+def _request_legacy_storage():
+    """Ask for the storage permission on old Android (needed for /sdcard)."""
+    if _sdk_int() >= 29:
+        return
+    try:
+        from android.permissions import Permission, request_permissions
+
+        request_permissions(
+            [Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE]
+        )
+        _log("requested legacy storage permission")
+    except Exception:
+        _log("permission request failed:\n" + traceback.format_exc())
+
+
+def _publish_text(name, text):
+    """Write `text` into the public Download folder.
+
+    API >= 29: MediaStore (no permission needed).
+    API < 29: MediaStore.Downloads does not exist -> direct file write.
     Must be called from the main thread (jnius + ContentResolver).
     """
+    if _sdk_int() < 29:
+        try:
+            os.makedirs(_legacy_public_dir(), exist_ok=True)
+            with open(os.path.join(_legacy_public_dir(), name), "w") as handle:
+                handle.write(text)
+            return True
+        except Exception:
+            _log("legacy publish failed:\n" + traceback.format_exc())
+            return False
+
     try:
         from jnius import autoclass
 
@@ -460,6 +493,7 @@ class Root(BoxLayout):
         self.status.text = T("saving", name)
 
         def worker():
+            import shutil
             import urllib.request
 
             app_dir = os.environ.get("ANDROID_PRIVATE") or "/tmp"
@@ -483,6 +517,17 @@ class Root(BoxLayout):
                             )
                 size = os.path.getsize(tmp)
                 _log("save: downloaded %d bytes" % size)
+
+                # API < 29: no MediaStore.Downloads -> plain file copy.
+                if _sdk_int() < 29:
+                    target = os.path.join(_legacy_public_dir(), name)
+                    shutil.copyfile(tmp, target)
+                    _log("save (legacy): OK -> %s" % target)
+                    Clock.schedule_once(lambda _dt: setattr(self.progress, "value", 100), 0)
+                    Clock.schedule_once(
+                        lambda _dt: setattr(self.status, "text", T("saved", name)), 0
+                    )
+                    return
 
                 from jnius import autoclass
 
@@ -765,6 +810,7 @@ class ReClipApp(App):
             ffmpeg = _setup_ffmpeg(abi)
             _log("build(): abi=%s ffmpeg=%s" % (abi, ffmpeg))
             root = Root()
+            _request_legacy_storage()
             # Start the HTTP server automatically: the UI is useless without it
             # and it removes a whole class of "I forgot to press Start" issues.
             Clock.schedule_once(lambda _dt: root.start_server(), 0.8)

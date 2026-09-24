@@ -86,3 +86,8 @@ p4a.bootstrap = sdl2
 p4a.fork = kivy
 p4a.branch = v2024.01.21
 
+# CI clones python-for-android here and patches its manifest template to add
+# android:usesCleartextTraffic="true" (the in-app WebView loads plain HTTP on
+# 127.0.0.1, which Android blocks for targetSdk >= 28).
+p4a.source_dir = /tmp/p4a-patched
+

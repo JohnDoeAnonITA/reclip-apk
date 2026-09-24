@@ -74,6 +74,30 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Clone + patch python-for-android (allow cleartext HTTP)
+        # Android blocks plain HTTP for apps targeting API >= 28, and the in-app
+        # WebView loads http://127.0.0.1:8899 -> must add
+        # android:usesCleartextTraffic="true" to the <application> tag.
+        # buildozer's manifest options need a newer p4a than the pinned one, so
+        # patch p4a's manifest template and point p4a.source_dir at it.
+        run: |
+          set -e
+          P4A=/tmp/p4a-patched
+          rm -rf "$P4A"
+          git clone --depth 1 -b v2024.01.21 \
+            https://github.com/kivy/python-for-android.git "$P4A"
+          python3 - <<'PY'
+          path = ("/tmp/p4a-patched/pythonforandroid/bootstraps/sdl2/build/"
+                  "templates/AndroidManifest.tmpl.xml")
+          src = open(path, encoding="utf-8").read()
+          if "usesCleartextTraffic" not in src:
+              src = src.replace("<application ",
+                                '<application android:usesCleartextTraffic="true" ', 1)
+              open(path, "w", encoding="utf-8").write(src)
+          print("cleartext patch present:",
+                "usesCleartextTraffic" in open(path, encoding="utf-8").read())
+          PY
+
       - name: Install system dependencies
         run: |
           sudo apt-get update

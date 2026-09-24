@@ -52,6 +52,12 @@ Hanno package diversi, quindi puoi **installarle entrambe** sullo stesso telefon
 | **RAM** | consigliati 2 GB o più (Python + WebView): con 512 MB–1 GB funziona, ma è lento |
 | **Spazio** | l'APK è ~82 MB, più lo spazio per i file che scarichi |
 
+> 🧪 **Build x86_64 sperimentale (non testata).** Per tablet o mini PC con
+> Android-x86, Bliss OS, ChromeOS (ARC) o emulatori, il workflow separato
+> `Build ReClip APK (x86_64 ALPHA)` può produrre un APK x86_64. **Non è mai stato
+> avviato su un dispositivo reale** e potrebbe non funzionare affatto. Le build
+> ARM restano quelle supportate.
+
 ## Installazione
 
 1. Scarica l'APK che ti interessa dalla pagina [**Releases**](../../releases)

@@ -52,6 +52,12 @@ They have different package names, so you can **install both** side by side.
 | **RAM** | 2 GB or more recommended (Python + WebView): with 512 MB–1 GB it runs, but slowly |
 | **Storage** | the APK is ~82 MB, plus the space for the files you download |
 
+> 🧪 **Experimental x86_64 build (untested).** For tablets or mini PCs running
+> Android-x86, Bliss OS, ChromeOS (ARC) or an emulator, the separate workflow
+> `Build ReClip APK (x86_64 ALPHA)` can produce an x86_64 APK. It has **never
+> been run on a real device** and may simply not work. The ARM builds are the
+> supported ones.
+
 ## Installation
 
 1. Download the APK you want from the [**Releases**](../../releases) page

@@ -1,0 +1,198 @@
+name: Build ReClip APK (x86_64 ALPHA)
+
+# ⚠️ EXPERIMENTAL / UNTESTED
+#
+# Android x86_64 build, for tablets or mini PCs running Android-x86, Bliss OS,
+# ChromeOS (ARC) or an emulator. It was never run on a real device: it may not
+# start at all. The ARM builds (workflow "Build ReClip APK") are the supported
+# ones — this is a "if it happens to work" extra, kept separate so it can never
+# break the normal release.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-x86_64-alpha:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    env:
+      FFMPEG_ABIS: "x86_64"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure variant (IT, x86_64, ALPHA)
+        run: |
+          sed -i "s|^LANG = .*|LANG = \"it\"|" main.py
+          sed -i "s|^android.archs = .*|android.archs = x86_64|" buildozer.spec
+          sed -i "s|^package.name = .*|package.name = reclipit|" buildozer.spec
+          sed -i "s|^package.domain = .*|package.domain = com.reclipit|" buildozer.spec
+          sed -i "s|^title = .*|title = ReClip IT (x86_64 alpha)|" buildozer.spec
+          cp reclip/templates/index_it.html reclip/templates/index.html
+          grep -E "^LANG" main.py
+          grep -E "^(title|package.name|android.archs) " buildozer.spec
+
+      - name: Clone + patch python-for-android (allow cleartext HTTP)
+        run: |
+          set -e
+          P4A=/tmp/p4a-patched
+          rm -rf "$P4A"
+          git clone --depth 1 -b v2024.01.21 \
+            https://github.com/kivy/python-for-android.git "$P4A"
+          python3 - <<'PY'
+          path = ("/tmp/p4a-patched/pythonforandroid/bootstraps/sdl2/build/"
+                  "templates/AndroidManifest.tmpl.xml")
+          src = open(path, encoding="utf-8").read()
+          if "usesCleartextTraffic" not in src:
+              src = src.replace("<application ",
+                                '<application android:usesCleartextTraffic="true" ', 1)
+              open(path, "w", encoding="utf-8").write(src)
+          print("cleartext patch present:",
+                "usesCleartextTraffic" in open(path, encoding="utf-8").read())
+          PY
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip openjdk-17-jdk-headless \
+            autoconf automake libtool pkg-config zlib1g-dev \
+            libncurses-dev libncursesw5-dev cmake libffi-dev libssl-dev \
+            build-essential ccache libltdl-dev
+
+      - name: Select Java 17
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> "$GITHUB_ENV"
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> "$GITHUB_PATH"
+
+      - name: Install buildozer + Cython
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade "buildozer==1.5.0" "cython==0.29.36"
+
+      - name: Sanity check main.py
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          src = open("main.py", encoding="utf-8").read()
+          start = src.index("STRINGS = {"); end = src.index("\n}\n", start)
+          bad = re.findall(r":\s*[A-Za-z_]+\(", src[start:end])
+          if bad:
+              print("ERROR: calls inside the STRINGS table:", bad); sys.exit(1)
+          print("OK: STRINGS table contains literals only")
+          PY
+
+      - name: Restore ffmpeg x86_64 cache
+        id: ffcache
+        uses: actions/cache/restore@v4
+        with:
+          path: libs
+          key: ffmpeg-7.1-ndk-x86_64-v1
+
+      - name: Build ffmpeg/ffprobe for x86_64 (NDK)
+        id: ffbuild
+        if: steps.ffcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          set -e
+          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$NDK" ] || { echo "no NDK"; exit 1; }
+          TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          API=24
+          W=/tmp/ffb
+          rm -rf "$W"; mkdir -p "$W"; cd "$W"
+
+          curl -fsSL -o lame.tar.gz \
+            https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+          tar xf lame.tar.gz
+          curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
+          tar xf ffmpeg.tar.xz
+
+          # libmp3lame (static, x86_64)
+          cp -r lame-3.100 lame-x86_64 && cd lame-x86_64
+          ./configure --host=x86_64-linux --prefix="$W/lame-x86_64" \
+            --disable-shared --enable-static --disable-frontend \
+            CC="$TC/bin/x86_64-linux-android${API}-clang" \
+            AR="$TC/bin/llvm-ar" RANLIB="$TC/bin/llvm-ranlib" STRIP="$TC/bin/llvm-strip" \
+            CFLAGS="-O2 -fPIC" >/dev/null
+          make -j"$(nproc)" >/dev/null && make install >/dev/null
+
+          # ffmpeg (x86_64)
+          cd "$W" && cp -r ffmpeg-7.1 ff-x86_64 && cd ff-x86_64
+          ./configure \
+            --prefix="$W/ff-x86_64" \
+            --target-os=android --arch=x86_64 --cpu=x86-64 \
+            --enable-cross-compile --sysroot="$TC/sysroot" \
+            --cc="$TC/bin/x86_64-linux-android${API}-clang" \
+            --cxx="$TC/bin/x86_64-linux-android${API}-clang++" \
+            --ar="$TC/bin/llvm-ar" --nm="$TC/bin/llvm-nm" \
+            --ranlib="$TC/bin/llvm-ranlib" --strip="$TC/bin/llvm-strip" \
+            --disable-shared --enable-static \
+            --disable-doc --disable-ffplay --disable-debug --disable-network \
+            --enable-libmp3lame \
+            --extra-cflags="-I$W/lame-x86_64/include -O2" \
+            --extra-ldflags="-L$W/lame-x86_64/lib" >/dev/null
+          make -j"$(nproc)" >/dev/null
+          file ffmpeg ffprobe
+
+          OUT="${GITHUB_WORKSPACE}/libs"
+          mkdir -p "$OUT/x86_64"
+          cp ffmpeg  "$OUT/x86_64/libffmpeg.so"
+          cp ffprobe "$OUT/x86_64/libffprobe.so"
+          file "$OUT/x86_64/libffmpeg.so"
+
+      - name: Save ffmpeg x86_64 cache
+        if: steps.ffbuild.outcome == 'success' && steps.ffcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: libs
+          key: ffmpeg-7.1-ndk-x86_64-v1
+
+      - name: Check ffmpeg libs are present
+        run: |
+          ls -lh libs/x86_64/ || { echo "libs/x86_64 missing -> cannot build"; exit 1; }
+
+      - name: Build APK (release)
+        run: |
+          set -e
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version 2>&1 | head -1
+          buildozer -v android release
+          ls -lh bin/ || true
+
+      - name: Sign the release APK (apksigner)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEYALIAS: ${{ secrets.KEYALIAS }}
+          KEYALIAS_PASS: ${{ secrets.KEYALIAS_PASS }}
+        run: |
+          set -e
+          UNSIGNED=$(ls bin/*release*.apk 2>/dev/null | head -1 || true)
+          if [ -z "$UNSIGNED" ]; then echo "no release apk in bin/"; ls -lh bin/ || true; exit 1; fi
+          BT=$(ls -d "$HOME"/.buildozer/android/platform/android-sdk/build-tools/*/ \
+                    /usr/local/lib/android/sdk/build-tools/*/ 2>/dev/null | sort -V | tail -1)
+          echo "$KEYSTORE_B64" | base64 -d > "$HOME/reclip.keystore"
+          "${BT}zipalign" -f 4 "$UNSIGNED" /tmp/aligned.apk
+          "${BT}apksigner" sign \
+            --ks "$HOME/reclip.keystore" --ks-key-alias "$KEYALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASS" --key-pass "pass:$KEYALIAS_PASS" \
+            --out bin/reclip-it-x86_64-ALPHA.apk /tmp/aligned.apk
+          echo "--- signature ---"
+          "${BT}apksigner" verify --print-certs bin/reclip-it-x86_64-ALPHA.apk | head -6
+          rm -f "$UNSIGNED"
+          ls -lh bin/
+
+      - name: Upload ALPHA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reclip-it-x86_64-ALPHA
+          path: bin/reclip-it-x86_64-ALPHA*.apk
+          if-no-files-found: error

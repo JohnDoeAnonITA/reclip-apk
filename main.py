@@ -23,6 +23,9 @@ sys.path.insert(0, os.path.join(HERE, "reclip"))
 HOST = "127.0.0.1"
 PORT = 8899
 
+# Bumped every build so the log tells us which APK actually ran.
+BUILD_ID = "2026-09-24-savenav"
+
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
 _DL_URI = None
@@ -88,7 +91,7 @@ def _log(msg):
         pass
 
 
-_log("=== boot start ===")
+_log("=== boot start (build %s) ===" % BUILD_ID)
 
 
 # --------------------------------------------------------------------------

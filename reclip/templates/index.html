@@ -682,10 +682,11 @@
     function saveCard(idx) {
       const c = cardData[idx];
       if (!c.jobId) return;
-      const a = document.createElement('a');
-      a.href = `/api/file/${c.jobId}`;
-      a.download = c.filename || '';
-      a.click();
+      // A detached <a download> click is not reliably routed to the Android
+      // WebView download path. Do a real navigation instead: the server sends
+      // Content-Disposition: attachment, which the WebView hands to the app's
+      // DownloadListener (saved via DownloadManager).
+      window.location.href = `/api/file/${c.jobId}`;
     }
 
     async function dlAll() {

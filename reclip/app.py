@@ -79,58 +79,23 @@ _err_lines = []
 _err_uri = None
 
 
-def _mirror_error(text):
-    global _err_uri
-    try:
-        from jnius import autoclass
-
-        activity = autoclass("org.kivy.android.PythonActivity").mActivity
-        resolver = activity.getContentResolver()
-        Downloads = autoclass("android.provider.MediaStore$Downloads")
-        CV = autoclass("android.content.ContentValues")
-        Cols = autoclass("android.provider.MediaStore$MediaColumns")
-
-        if _err_uri is None:
-            vals = CV()
-            vals.put(Cols.DISPLAY_NAME, _ERROR_NAME)
-            vals.put(Cols.MIME_TYPE, "text/plain")
-            # Nested class: `android.os.Build.VERSION` must use the "$" form in
-            # jnius, otherwise this whole mirroring silently fails.
-            try:
-                sdk = int(autoclass("android.os.Build$VERSION").SDK_INT)
-            except Exception:
-                sdk = 99
-            if sdk >= 29:
-                vals.put(Cols.RELATIVE_PATH, "Download")
-            _err_uri = resolver.insert(Downloads.EXTERNAL_CONTENT_URI, vals)
-        if _err_uri is None:
-            return
-        stream = resolver.openOutputStream(_err_uri, "wt")
-        if stream is None:
-            return
-        stream.write(text.encode("utf-8"))
-        stream.flush()
-        stream.close()
-    except Exception:
-        pass
-
-
 def log_error(title, detail=""):
+    """Append to a log in the app's own (invisible) directory.
+
+    Nothing is written to the public Download folder: users used to see the
+    log files there.
+    """
     import time
 
     _err_lines.append("====== %s @ %s ======" % (title, time.strftime("%Y-%m-%d %H:%M:%S")))
     if detail:
         _err_lines.append(detail)
-    text = "\n".join(_err_lines) + "\n"
-
-    # MediaStore must run on the Kivy/main thread: this is called from the
-    # download worker thread, where jnius may not be attached.
     try:
-        from kivy.clock import Clock
-
-        Clock.schedule_once(lambda _dt: _mirror_error(text), 0)
+        base = os.environ.get("ANDROID_PRIVATE") or "/tmp"
+        with open(os.path.join(base, "reclip_error.log"), "w") as handle:
+            handle.write("\n".join(_err_lines) + "\n")
     except Exception:
-        _mirror_error(text)
+        pass
 
 
 def ytdlp_opts(**extra):

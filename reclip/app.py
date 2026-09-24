@@ -89,13 +89,18 @@ def _mirror_error(text):
         MS = autoclass("android.provider.MediaStore")
         CV = autoclass("android.content.ContentValues")
         Cols = autoclass("android.provider.MediaStore$MediaColumns")
-        Build = autoclass("android.os.Build")
 
         if _err_uri is None:
             vals = CV()
             vals.put(Cols.DISPLAY_NAME, _ERROR_NAME)
             vals.put(Cols.MIME_TYPE, "text/plain")
-            if Build.VERSION.SDK_INT >= 29:
+            # Nested class: `android.os.Build.VERSION` must use the "$" form in
+            # jnius, otherwise this whole mirroring silently fails.
+            try:
+                sdk = int(autoclass("android.os.Build$VERSION").SDK_INT)
+            except Exception:
+                sdk = 99
+            if sdk >= 29:
                 vals.put(Cols.RELATIVE_PATH, "Download")
             _err_uri = resolver.insert(MS.Downloads.EXTERNAL_CONTENT_URI, vals)
         if _err_uri is None:

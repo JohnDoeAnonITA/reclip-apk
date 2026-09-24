@@ -48,10 +48,21 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --upgrade "buildozer==1.5.0" "cython==0.29.36"
 
+      - name: Restore ffmpeg build cache
+        id: ffcache
+        uses: actions/cache/restore@v4
+        with:
+          path: libs
+          # Bump this key when the ffmpeg source/config below changes.
+          key: ffmpeg-7.1-ndk-r29-api24-v1
+
       - name: Build Android-native ffmpeg/ffprobe (NDK, with libmp3lame)
         # A glibc binary cannot run on Android: seccomp kills it with SIGSYS.
         # So compile ffmpeg for Android (bionic) with the NDK. Non-fatal: if this
         # fails, the next step provides a fallback so the APK still builds.
+        # Skipped entirely when the cache above restored the binaries.
+        id: ffbuild
+        if: steps.ffcache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: |
           set -e
@@ -116,6 +127,14 @@ jobs:
           file "$OUT"/*/libffmpeg.so
           find "$OUT" -type f -exec ls -lh {} \;
 
+      - name: Save ffmpeg build cache
+        # Only cache a genuinely successful NDK build (never the glibc fallback).
+        if: steps.ffbuild.outcome == 'success' && steps.ffcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: libs
+          key: ffmpeg-7.1-ndk-r29-api24-v1
+
       - name: Fallback ffmpeg libs (only if the NDK build failed)
         run: |
           set -e
@@ -157,12 +176,33 @@ jobs:
                   print(path, os.path.getsize(path))
           PY
 
-      - name: Build APK
+      - name: Build APK (release, signed if secrets are present)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEYALIAS: ${{ secrets.KEYALIAS }}
+          KEYALIAS_PASS: ${{ secrets.KEYALIAS_PASS }}
         run: |
+          set -e
           echo "JAVA_HOME=$JAVA_HOME"
           java -version 2>&1 | head -1
           python3 --version
-          buildozer -v android debug
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$HOME/reclip.keystore"
+            cat >> buildozer.spec <<EOF
+
+          # --- release signing (injected by CI, never committed) ---
+          android.keystore = $HOME/reclip.keystore
+          android.keystore_pass = $KEYSTORE_PASS
+          android.keyalias = $KEYALIAS
+          android.keyalias_pass = $KEYALIAS_PASS
+          EOF
+            echo "release keystore configured"
+            buildozer -v android release
+          else
+            echo "no keystore secret -> debug build"
+            buildozer -v android debug
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

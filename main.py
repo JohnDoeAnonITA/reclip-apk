@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-savenav"
+BUILD_ID = "2026-09-24-savebtn"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -317,6 +317,61 @@ class Root(BoxLayout):
         self.open_btn.disabled = True
         self.open_btn.bind(on_release=self.open_ui)
         self.add_widget(self.open_btn)
+
+        # Native save path: works even if the WebView download handling fails.
+        self.save_btn = big_button("Salva ultimo download", "#6A1B9A")
+        self.save_btn.disabled = True
+        self.save_btn.bind(on_release=self.save_last)
+        self.add_widget(self.save_btn)
+
+    def save_last(self, *_):
+        import json as _json
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                "http://%s:%s/api/last" % (HOST, PORT), timeout=10
+            ) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            self.status.text = "Nessun download da salvare"
+            return
+        name = data.get("filename") or "reclip_download"
+        url = "http://%s:%s/api/file/%s" % (HOST, PORT, data.get("id"))
+        self._enqueue_download(url, name)
+
+    def _enqueue_download(self, url, name):
+        try:
+            from jnius import autoclass, cast
+
+            DownloadManager = autoclass("android.app.DownloadManager")
+            DMRequest = autoclass("android.app.DownloadManager$Request")
+            Context = autoclass("android.content.Context")
+            Environment = autoclass("android.os.Environment")
+            Uri = autoclass("android.net.Uri")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+
+            activity = PythonActivity.mActivity
+            manager = cast(
+                "android.app.DownloadManager",
+                activity.getSystemService(Context.DOWNLOAD_SERVICE),
+            )
+            request = DMRequest(Uri.parse(url))
+            request.setTitle(name)
+            request.setDescription("ReClip")
+            request.setNotificationVisibility(
+                DMRequest.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+            )
+            request.setDestinationInExternalPublicDir(
+                Environment.DIRECTORY_DOWNLOADS, name
+            )
+            manager.enqueue(request)
+            _log("native save enqueued: %s" % name)
+            self.status.text = "Salvataggio avviato:\n%s" % name
+        except Exception:
+            tb = traceback.format_exc()
+            _log("native save failed:\n" + tb)
+            self.status.text = "Errore salvataggio:\n" + tb[-200:]
 
     def start_server(self, *_):
         if self.server is not None:

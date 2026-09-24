@@ -281,6 +281,13 @@ class ReClipHandler(BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(TEMPLATES_DIR, "index.html"))
         if path.startswith("/static/"):
             return self._serve_file(os.path.join(STATIC_DIR, os.path.basename(path)))
+        if path == "/api/last":
+            done = [(k, v) for k, v in jobs.items()
+                    if v.get("status") == "done" and v.get("file")]
+            if not done:
+                return self._json({"error": "No finished download"}, 404)
+            job_id, job = done[-1]
+            return self._json({"id": job_id, "filename": job.get("filename")})
         if path.startswith("/api/status/"):
             job = jobs.get(path.rsplit("/", 1)[-1])
             if not job:

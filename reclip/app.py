@@ -103,8 +103,14 @@ def run_download(job_id, url, format_choice, format_id):
         opts["merge_output_format"] = "mp4"
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        import contextlib
+
+        # Redirect both streams for the whole yt-dlp session: on Android they
+        # can be plain strings, and yt-dlp writes warnings/errors to stderr.
+        devnull = open(os.devnull, "w")
+        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, "%s.*" % job_id))
         if not files:
@@ -132,9 +138,12 @@ def run_download(job_id, url, format_choice, format_id):
 
         job["file"] = chosen
         job["status"] = "done"
-    except Exception as exc:
+    except Exception:
+        import traceback as _tb
+
         job["status"] = "error"
-        job["error"] = str(exc)
+        # Keep the real cause visible (truncated traceback).
+        job["error"] = _tb.format_exc()[-700:]
 
 
 class ReClipHandler(BaseHTTPRequestHandler):

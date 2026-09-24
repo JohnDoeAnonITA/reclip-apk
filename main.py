@@ -131,9 +131,31 @@ FFMPEG_CANDIDATES = {
 }
 
 
+def _android_native_lib(name):
+    """Path of a file shipped under the APK's lib/<abi>/ (executable there)."""
+    try:
+        from jnius import autoclass
+
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        libdir = activity.getApplicationInfo().nativeLibraryDir
+        path = os.path.join(libdir, name)
+        if os.path.exists(path):
+            return path
+    except Exception:
+        pass
+    return None
+
+
 def _setup_ffmpeg(abi):
-    names = list(FFMPEG_CANDIDATES.get(abi, [])) + ["ffmpeg"]
-    for name in names:
+    # Preferred: ffmpeg shipped as a native lib. On Android 10+ the app data
+    # directory is noexec, so a binary stored there cannot be run at all.
+    lib = _android_native_lib("libffmpeg.so")
+    if lib:
+        os.environ.setdefault("RECLIP_FFMPEG", lib)
+        return lib
+
+    # Fallback (desktop / older Android): a plain file next to the app.
+    for name in list(FFMPEG_CANDIDATES.get(abi, [])) + ["ffmpeg"]:
         path = os.path.join(HERE, name)
         if os.path.exists(path):
             try:

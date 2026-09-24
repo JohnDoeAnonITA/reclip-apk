@@ -48,7 +48,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --upgrade "buildozer==1.5.0" "cython==0.29.36"
 
-      - name: Bundle STATIC ffmpeg (arm64 + armhf)
+      - name: Bundle ffmpeg/ffprobe as native libs
         run: |
           set -e
           python3 - <<'PY'
@@ -60,13 +60,16 @@ jobs:
               "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz",
               "/tmp/ff_armhf.tar.xz")
           PY
-          mkdir -p /tmp/x64 /tmp/xhf
+          mkdir -p /tmp/x64 /tmp/xhf libs/arm64-v8a libs/armeabi-v7a
           tar -xJf /tmp/ff_arm64.tar.xz -C /tmp/x64
           tar -xJf /tmp/ff_armhf.tar.xz -C /tmp/xhf
-          cp /tmp/x64/ffmpeg-*-arm64-static/ffmpeg ./ffmpeg_arm64
-          cp /tmp/xhf/ffmpeg-*-armhf-static/ffmpeg ./ffmpeg_armhf
-          chmod +x ./ffmpeg_arm64 ./ffmpeg_armhf
-          ls -lh ./ffmpeg_arm64 ./ffmpeg_armhf
+          # Android 10+ makes the app data dir noexec; files under the APK's
+          # lib/<abi>/ ARE executable, so ship the binaries as lib*.so there.
+          cp /tmp/x64/ffmpeg-*-arm64-static/ffmpeg  libs/arm64-v8a/libffmpeg.so
+          cp /tmp/x64/ffmpeg-*-arm64-static/ffprobe libs/arm64-v8a/libffprobe.so
+          cp /tmp/xhf/ffmpeg-*-armhf-static/ffmpeg  libs/armeabi-v7a/libffmpeg.so
+          cp /tmp/xhf/ffmpeg-*-armhf-static/ffprobe libs/armeabi-v7a/libffprobe.so
+          find libs -type f -exec ls -lh {} \;
 
       - name: Build APK
         run: |

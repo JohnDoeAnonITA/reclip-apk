@@ -16,10 +16,10 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,svg,html,css,js,json,txt
 
 # (list) Patterns of files to include (binary ffmpeg has no extension)
-source.include_patterns = ffmpeg_arm64,ffmpeg_armhf
+# ffmpeg is shipped as a native lib (see android.add_libs_*), not as an asset.
 
 # (list) Source files to exclude
-source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer,p4a-recipes
+source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer,p4a-recipes,libs
 source.exclude_patterns = *.apk,*.aab,*.pyc
 
 # (str) Application versioning
@@ -61,6 +61,11 @@ android.ndk = 25b
 # x86/x86_64 are emulator-only and have no bundled ffmpeg -> excluded to keep
 # the build under ~40 minutes.
 android.archs = arm64-v8a, armeabi-v7a
+
+# ffmpeg/ffprobe as native libs: the app data dir is noexec on Android 10+,
+# but files under the APK's lib/<abi>/ are executable.
+android.add_libs_arm64_v8a = libs/arm64-v8a/*.so
+android.add_libs_armeabi_v7a = libs/armeabi-v7a/*.so
 
 # (bool) Auto-accept the Android SDK licenses
 android.accept_sdk_license = True

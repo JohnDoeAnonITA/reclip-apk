@@ -50,40 +50,8 @@ def _sdk_int():
         return 99
 
 
-def _mirror_to_downloads(text):
-    global _DL_URI
-    try:
-        from jnius import autoclass
-
-        activity = autoclass("org.kivy.android.PythonActivity").mActivity
-        resolver = activity.getContentResolver()
-        MediaStore = autoclass("android.provider.MediaStore")
-        CV = autoclass("android.content.ContentValues")
-        Cols = autoclass("android.provider.MediaStore$MediaColumns")
-
-        if _DL_URI is None:
-            values = CV()
-            values.put(Cols.DISPLAY_NAME, _LOG_NAME)
-            values.put(Cols.MIME_TYPE, "text/plain")
-            if _sdk_int() >= 29:
-                values.put(Cols.RELATIVE_PATH, "Download")
-            _DL_URI = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-
-        if _DL_URI is None:
-            return
-        stream = resolver.openOutputStream(_DL_URI, "wt")
-        if stream is None:
-            return
-        stream.write(text.encode("utf-8"))
-        stream.flush()
-        stream.close()
-    except Exception:
-        # last resort: direct write (only works with legacy storage)
-        try:
-            with open("/sdcard/Download/" + _LOG_NAME, "w") as handle:
-                handle.write(text)
-        except Exception:
-            pass
+# (the MediaStore log mirror to /sdcard/Download was removed: users should not
+#  see log files. Diagnostics stay in the app's private directory.)
 
 
 def _log(msg):
@@ -94,14 +62,8 @@ def _log(msg):
             handle.write(line + "\n")
     except Exception:
         pass
-    text = "\n".join(_LOG_LINES) + "\n"
-    # MediaStore needs the main thread (jnius is not attached in workers).
-    try:
-        from kivy.clock import Clock
-
-        Clock.schedule_once(lambda _dt: _mirror_to_downloads(text), 0)
-    except Exception:
-        _mirror_to_downloads(text)
+    # Logging stays inside the app's private directory: nothing is published
+    # to the public Download folder any more.
     try:
         print("[reclip] " + line, file=sys.stdout, flush=True)
     except Exception:

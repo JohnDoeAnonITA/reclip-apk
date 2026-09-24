@@ -34,8 +34,11 @@ orientation = portrait
 # (bool) Indicate if the application should be fullscreen or not
 fullscreen = 0
 
-# (str) Application entry point
-android.entrypoint = main.py
+# (str) Android entry point = the ACTIVITY CLASS (NOT the python file!).
+# Setting this to "main.py" makes the manifest declare a non-existent Java
+# class -> ClassNotFoundException -> instant crash before Python starts.
+# Leave it commented to use the default org.kivy.android.PythonActivity.
+#android.entrypoint = org.kivy.android.PythonActivity
 
 # (list) Permissions
 android.permissions = INTERNET,READ_MEDIA_VIDEO,READ_MEDIA_AUDIO,WRITE_EXTERNAL_STORAGE

@@ -54,6 +54,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Sanity check main.py (no calls inside the translation tables)
+        # Guards against the regression where a global replace turned a STRINGS
+        # entry into a self-referencing T() call -> NameError at import -> the
+        # app crashed before Kivy even started.
+        run: |
+          python3 - <<'PY'
+          import re
+          import sys
+
+          src = open("main.py", encoding="utf-8").read()
+          start = src.index("STRINGS = {")
+          end = src.index("\n}\n", start)
+          table = src[start:end]
+          bad = re.findall(r":\s*[A-Za-z_]+\(", table)
+          if bad:
+              print("ERROR: calls found inside the STRINGS table:", bad)
+              sys.exit(1)
+          print("OK: STRINGS table contains literals only")
+          PY
+
       - name: Configure UI variant (${{ matrix.lang }})
         run: |
           echo "lang=${{ matrix.lang }} pkg=${{ matrix.pkg }}"

@@ -121,8 +121,8 @@ jobs:
             --disable-shared --enable-static --disable-frontend \
             CC="$TC/bin/x86_64-linux-android${API}-clang" \
             AR="$TC/bin/llvm-ar" RANLIB="$TC/bin/llvm-ranlib" STRIP="$TC/bin/llvm-strip" \
-            CFLAGS="-O2 -fPIC" >/dev/null
-          make -j"$(nproc)" >/dev/null && make install >/dev/null
+            CFLAGS="-O2 -fPIC"
+          make -j"$(nproc)" && make install
 
           # ffmpeg (x86_64)
           cd "$W" && cp -r ffmpeg-7.1 ff-x86_64 && cd ff-x86_64
@@ -138,8 +138,8 @@ jobs:
             --disable-doc --disable-ffplay --disable-debug --disable-network \
             --enable-libmp3lame \
             --extra-cflags="-I$W/lame-x86_64/include -O2" \
-            --extra-ldflags="-L$W/lame-x86_64/lib" >/dev/null
-          make -j"$(nproc)" >/dev/null
+            --extra-ldflags="-L$W/lame-x86_64/lib"
+          make -j"$(nproc)"
           file ffmpeg ffprobe
 
           OUT="${GITHUB_WORKSPACE}/libs"

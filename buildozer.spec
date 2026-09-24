@@ -28,6 +28,10 @@ version = 1.0.0
 # (str) Application icon (PNG in the project root)
 icon.filename = %(source.dir)s/icon.png
 
+# (str) Release artifact: 'apk' (directly installable) or 'aab' (Play bundle).
+# buildozer 1.5 defaults to 'aab'; we want a shareable/installable APK.
+android.release_artifact = apk
+
 # (list) Application requirements
 requirements = python3,kivy,yt-dlp,certifi,libffi,openssl,android
 

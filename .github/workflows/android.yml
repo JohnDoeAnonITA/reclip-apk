@@ -207,6 +207,8 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: reclip-arm-apk
-          path: bin/*.apk
+          name: reclip-apk
+          path: |
+            bin/*.apk
+            bin/*.aab
           if-no-files-found: error

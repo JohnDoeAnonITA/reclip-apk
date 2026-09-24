@@ -1,12 +1,13 @@
-"""ReClip backend - Flask replaced by the Python standard library.
+"""ReClip backend - standard library only (no Flask, no yt-dlp subprocess).
 
-Flask/Werkzeug are removed on purpose: p4a's `flask` recipe pins Flask 2.0.3
-(2021) which is incompatible with the Werkzeug 3.x that pip installs, and modern
-Flask has no setup.py so p4a's recipe cannot build it. The template is plain
-HTML (no Jinja), and the API is 5 tiny endpoints, so `http.server` does the job
-with zero third-party dependencies.
+Two Android-specific changes vs upstream:
+  * Flask/Werkzeug/Jinja removed -> `http.server` (the template is plain HTML).
+  * yt-dlp is used as a **Python library** instead of a subprocess. On Android
+    there is no `python` executable, so `sys.executable` is empty and
+    `subprocess.run([sys.executable, '-m', 'yt_dlp'])` fails with
+    "[Errno 13] Permission denied: ''".
 
-Same routes as upstream ReClip:
+Routes (identical to upstream ReClip):
   GET  /                     -> templates/index.html
   GET  /static/<file>        -> static assets
   POST /api/info             -> yt-dlp metadata
@@ -19,8 +20,6 @@ Same routes as upstream ReClip:
 import glob
 import json
 import os
-import subprocess
-import sys
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,14 +31,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 TEMPLATES_DIR = os.path.join(HERE, "templates")
 STATIC_DIR = os.path.join(HERE, "static")
 
-# ---------------------------------------------------------------------------
-# yt-dlp invocation (module inside the APK, CLI on desktop) + bundled ffmpeg
-# ---------------------------------------------------------------------------
-if os.environ.get("RECLIP_YTDLP_MODULE") == "1":
-    YTDLP_CMD = [sys.executable, "-m", "yt_dlp"]
-else:
-    YTDLP_CMD = [os.environ.get("RECLIP_YTDLP", "yt-dlp")]
-
+# Path to a bundled static ffmpeg binary (Android has none on PATH).
 FFMPEG_LOC = os.environ.get("RECLIP_FFMPEG")
 
 CONTENT_TYPES = {
@@ -57,42 +49,42 @@ CONTENT_TYPES = {
 jobs = {}
 
 
-def ytdlp_base():
-    base = list(YTDLP_CMD)
+def ytdlp_opts(**extra):
+    """Base yt-dlp options; adds the bundled ffmpeg when available."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "noplaylist": True,
+    }
     if FFMPEG_LOC:
-        base += ["--ffmpeg-location", FFMPEG_LOC]
-    return base
-
-
-def parse_ytdlp_json(stdout):
-    """yt-dlp -j prints one JSON object per line; return the first valid one."""
-    for line in stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        return json.loads(line)
-    raise ValueError("yt-dlp returned no data")
+        opts["ffmpeg_location"] = FFMPEG_LOC
+    opts.update(extra)
+    return opts
 
 
 def run_download(job_id, url, format_choice, format_id):
+    import yt_dlp
+
     job = jobs[job_id]
-    out_template = os.path.join(DOWNLOAD_DIR, "%s.%%(ext)s" % job_id)
-    cmd = ytdlp_base() + ["--no-playlist", "-o", out_template]
+    outtmpl = os.path.join(DOWNLOAD_DIR, "%s.%%(ext)s" % job_id)
+    opts = ytdlp_opts(outtmpl=outtmpl)
 
     if format_choice == "audio":
-        cmd += ["-x", "--audio-format", "mp3"]
+        opts["format"] = "bestaudio/best"
+        opts["postprocessors"] = [
+            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}
+        ]
     elif format_id:
-        cmd += ["-f", "%s+bestaudio/best" % format_id, "--merge-output-format", "mp4"]
+        opts["format"] = "%s+bestaudio/best" % format_id
+        opts["merge_output_format"] = "mp4"
     else:
-        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
-    cmd.append(url)
+        opts["format"] = "bestvideo+bestaudio/best"
+        opts["merge_output_format"] = "mp4"
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            job["status"] = "error"
-            job["error"] = result.stderr.strip().split("\n")[-1]
-            return
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, "%s.*" % job_id))
         if not files:
@@ -111,7 +103,7 @@ def run_download(job_id, url, format_choice, format_id):
                     pass
 
         ext = os.path.splitext(chosen)[1]
-        title = job.get("title", "").strip()
+        title = ((info or {}).get("title") or job.get("title") or "").strip()
         if title:
             safe = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:100].strip()
             job["filename"] = ("%s%s" % (safe, ext)) if safe else os.path.basename(chosen)
@@ -120,10 +112,7 @@ def run_download(job_id, url, format_choice, format_id):
 
         job["file"] = chosen
         job["status"] = "done"
-    except subprocess.TimeoutExpired:
-        job["status"] = "error"
-        job["error"] = "Download timed out (5 min limit)"
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:
         job["status"] = "error"
         job["error"] = str(exc)
 
@@ -132,9 +121,8 @@ class ReClipHandler(BaseHTTPRequestHandler):
     server_version = "ReClip/1.0"
     protocol_version = "HTTP/1.1"
 
-    # -- helpers ------------------------------------------------------------
     def log_message(self, *args):
-        pass  # keep the device log clean
+        pass
 
     def _send(self, code, body=b"", ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, str):
@@ -217,15 +205,14 @@ class ReClipHandler(BaseHTTPRequestHandler):
         url = (data.get("url") or "").strip()
         if not url:
             return self._json({"error": "No URL provided"}, 400)
-        cmd = ytdlp_base() + ["--no-playlist", "-j", url]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                return self._json({"error": result.stderr.strip().split("\n")[-1]}, 400)
-            info = parse_ytdlp_json(result.stdout)
+            import yt_dlp
+
+            with yt_dlp.YoutubeDL(ytdlp_opts(skip_download=True)) as ydl:
+                info = ydl.extract_info(url, download=False)
 
             best_by_height = {}
-            for f in info.get("formats", []):
+            for f in (info or {}).get("formats", []) or []:
                 height = f.get("height")
                 if height and f.get("vcodec", "none") != "none":
                     tbr = f.get("tbr") or 0
@@ -237,14 +224,12 @@ class ReClipHandler(BaseHTTPRequestHandler):
             formats.sort(key=lambda item: item["height"], reverse=True)
 
             return self._json({
-                "title": info.get("title", ""),
-                "thumbnail": info.get("thumbnail", ""),
-                "duration": info.get("duration"),
-                "uploader": info.get("uploader", ""),
+                "title": (info or {}).get("title", ""),
+                "thumbnail": (info or {}).get("thumbnail", ""),
+                "duration": (info or {}).get("duration"),
+                "uploader": (info or {}).get("uploader", ""),
                 "formats": formats,
             })
-        except subprocess.TimeoutExpired:
-            return self._json({"error": "Timed out fetching video info"}, 400)
         except Exception as exc:
             return self._json({"error": str(exc)}, 400)
 
@@ -252,16 +237,20 @@ class ReClipHandler(BaseHTTPRequestHandler):
         url = (data.get("url") or "").strip()
         if not url:
             return self._json({"error": "No URL provided"}, 400)
-        cmd = ytdlp_base() + ["--flat-playlist", "-J", url]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                return self._json({"error": result.stderr.strip().split("\n")[-1]}, 400)
-            info = json.loads(result.stdout)
-            urls = [e.get("url") for e in info.get("entries", []) if e.get("url")]
+            import yt_dlp
+
+            with yt_dlp.YoutubeDL(ytdlp_opts(extract_flat=True)) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+            urls = []
+            for entry in (info or {}).get("entries", []) or []:
+                if not entry:
+                    continue
+                value = entry.get("url") or entry.get("webpage_url") or entry.get("id")
+                if value:
+                    urls.append(value)
             return self._json({"urls": urls})
-        except subprocess.TimeoutExpired:
-            return self._json({"error": "Timed out fetching playlist info"}, 400)
         except Exception as exc:
             return self._json({"error": str(exc)}, 400)
 
@@ -285,7 +274,6 @@ class ReClipHandler(BaseHTTPRequestHandler):
 
 
 def make_server(host, port):
-    """Return a configured (not yet running) threading HTTP server."""
     return ThreadingHTTPServer((host, port), ReClipHandler)
 
 

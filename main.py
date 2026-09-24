@@ -272,6 +272,27 @@ class Root(BoxLayout):
         self._back_listener = None
         self._dl_listener = None
 
+        def big_button(text, bg):
+            return Button(
+                text=text,
+                font_size=dp(25),
+                bold=True,
+                size_hint=(1, None),
+                height=dp(78),
+                background_normal="",
+                background_down="",
+                background_color=get_color_from_hex(bg),
+                color=get_color_from_hex("#FFFFFF"),
+            )
+
+        # The WebView overlay leaves this strip visible, so this button can
+        # always be tapped (the Android BACK key closes the whole activity
+        # instead of reaching a View.OnKeyListener).
+        self.close_btn = big_button("◀ Chiudi interfaccia web", "#455A64")
+        self.close_btn.disabled = True
+        self.close_btn.bind(on_release=self._close_webview)
+        self.add_widget(self.close_btn)
+
         self.add_widget(Label(
             text="ReClip",
             font_size=dp(38),
@@ -290,19 +311,6 @@ class Root(BoxLayout):
         )
         self.status.bind(size=lambda lbl, size: setattr(lbl, "text_size", size))
         self.add_widget(self.status)
-
-        def big_button(text, bg):
-            return Button(
-                text=text,
-                font_size=dp(25),
-                bold=True,
-                size_hint=(1, None),
-                height=dp(78),
-                background_normal="",
-                background_down="",
-                background_color=get_color_from_hex(bg),
-                color=get_color_from_hex("#FFFFFF"),
-            )
 
         self.start_btn = big_button("Avvia server", "#2E7D32")
         self.start_btn.bind(on_release=self.start_server)
@@ -516,10 +524,27 @@ class Root(BoxLayout):
                 wv.setOnKeyListener(self._back_listener)
             if self._dl_listener is not None:
                 wv.setDownloadListener(self._dl_listener)
+            # Do NOT cover the whole screen: leave a strip at the top where the
+            # Kivy "close" button stays visible and tappable.
+            try:
+                FrameLayout = autoclass("android.widget.FrameLayout")
+                density = activity.getResources().getDisplayMetrics().density
+                params = FrameLayout.LayoutParams(-1, -1)
+                params.topMargin = int(116 * density)
+            except Exception:
+                _log("margin params failed:\n" + traceback.format_exc())
+                params = LayoutParams(-1, -1)
+
             wv.loadUrl(url)
-            activity.addContentView(wv, LayoutParams(-1, -1))
+            activity.addContentView(wv, params)
+            try:
+                wv.setFocusableInTouchMode(True)
+                wv.requestFocus()
+            except Exception:
+                pass
             self._webview = wv
 
+        self.close_btn.disabled = False
         _show()
 
     def _close_webview(self, *_):
@@ -527,6 +552,10 @@ class Root(BoxLayout):
         if wv is None:
             return
         self._webview = None
+        try:
+            self.close_btn.disabled = True
+        except Exception:
+            pass
         try:
             from android.runnable import run_on_ui_thread
         except Exception:

@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-savepoll"
+BUILD_ID = "2026-09-24-autostart"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -288,7 +288,7 @@ class Root(BoxLayout):
         # The WebView overlay leaves this strip visible, so this button can
         # always be tapped (the Android BACK key closes the whole activity
         # instead of reaching a View.OnKeyListener).
-        self.close_btn = big_button("◀ Chiudi interfaccia web", "#455A64")
+        self.close_btn = big_button("< Chiudi interfaccia web", "#455A64")
         self.close_btn.disabled = True
         self.close_btn.bind(on_release=self._close_webview)
         self.add_widget(self.close_btn)
@@ -357,6 +357,7 @@ class Root(BoxLayout):
         )
 
     def save_last(self, *_):
+        _log("save_last tapped")
         import json as _json
         import urllib.request
 
@@ -406,6 +407,7 @@ class Root(BoxLayout):
             self.status.text = "Errore salvataggio:\n" + tb[-200:]
 
     def start_server(self, *_):
+        _log("start_server tapped")
         if self.server is not None:
             return
         self.status.text = "Avvio in corso..."
@@ -445,6 +447,7 @@ class Root(BoxLayout):
         self.open_btn.disabled = not running
 
     def open_ui(self, *_):
+        _log("open_ui tapped (server=%s)" % (self.server is not None))
         url = "http://%s:%s/" % (HOST, PORT)
         try:
             from android.runnable import run_on_ui_thread
@@ -569,6 +572,7 @@ class Root(BoxLayout):
                 inner.topMargin = int(116 * density)
                 container.addView(wv, inner)
                 activity.addContentView(container, params)
+                self._container = container
             except Exception:
                 _log("top strip failed:\n" + traceback.format_exc())
                 activity.addContentView(wv, params)
@@ -583,8 +587,10 @@ class Root(BoxLayout):
         _show()
 
     def _close_webview(self, *_):
+        _log("close_webview tapped")
         wv = self._webview
         if wv is None:
+            _log("close_webview: nothing open")
             return
         self._webview = None
         try:
@@ -599,12 +605,20 @@ class Root(BoxLayout):
         @run_on_ui_thread
         def _hide():
             try:
-                parent = wv.getParent()
-                if parent is not None:
-                    parent.removeView(wv)
+                container = getattr(self, "_container", None)
+                if container is not None:
+                    grand = container.getParent()
+                    if grand is not None:
+                        grand.removeView(container)
+                    self._container = None
+                else:
+                    parent = wv.getParent()
+                    if parent is not None:
+                        parent.removeView(wv)
                 wv.destroy()
+                _log("webview closed")
             except Exception:
-                pass
+                _log("close webview failed:\n" + traceback.format_exc())
 
         _hide()
 
@@ -615,7 +629,11 @@ class ReClipApp(App):
             abi = _primary_abi()
             ffmpeg = _setup_ffmpeg(abi)
             _log("build(): abi=%s ffmpeg=%s" % (abi, ffmpeg))
-            return Root()
+            root = Root()
+            # Start the HTTP server automatically: the UI is useless without it
+            # and it removes a whole class of "I forgot to press Start" issues.
+            Clock.schedule_once(lambda _dt: root.start_server(), 0.8)
+            return root
         except Exception:
             tb = traceback.format_exc()
             _log("BUILD FAILED:\n" + tb)

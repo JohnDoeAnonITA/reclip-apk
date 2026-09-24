@@ -105,12 +105,16 @@ jobs:
           build_one arm64-v8a   aarch64 armv8-a aarch64-linux-android        aarch64-linux ""
           build_one armeabi-v7a arm     armv7-a armv7a-linux-androideabi     arm-linux     "--enable-neon"
 
-          mkdir -p libs/arm64-v8a libs/armeabi-v7a
-          cp "$W/ff-arm64-v8a/ffmpeg"    libs/arm64-v8a/libffmpeg.so
-          cp "$W/ff-arm64-v8a/ffprobe"   libs/arm64-v8a/libffprobe.so
-          cp "$W/ff-armeabi-v7a/ffmpeg"  libs/armeabi-v7a/libffmpeg.so
-          cp "$W/ff-armeabi-v7a/ffprobe" libs/armeabi-v7a/libffprobe.so
-          find libs -type f -exec ls -lh {} \;
+          # NB: absolute path! The cwd was changed to $W above, so a relative
+          # "libs/..." would land in /tmp instead of the repo workspace.
+          OUT="${GITHUB_WORKSPACE:-$PWD}/libs"
+          mkdir -p "$OUT/arm64-v8a" "$OUT/armeabi-v7a"
+          cp "$W/ff-arm64-v8a/ffmpeg"    "$OUT/arm64-v8a/libffmpeg.so"
+          cp "$W/ff-arm64-v8a/ffprobe"   "$OUT/arm64-v8a/libffprobe.so"
+          cp "$W/ff-armeabi-v7a/ffmpeg"  "$OUT/armeabi-v7a/libffmpeg.so"
+          cp "$W/ff-armeabi-v7a/ffprobe" "$OUT/armeabi-v7a/libffprobe.so"
+          file "$OUT"/*/libffmpeg.so
+          find "$OUT" -type f -exec ls -lh {} \;
 
       - name: Fallback ffmpeg libs (only if the NDK build failed)
         run: |

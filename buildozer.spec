@@ -19,7 +19,7 @@ source.include_exts = py,png,jpg,jpeg,svg,html,css,js,json,txt
 # ffmpeg is shipped as a native lib (see android.add_libs_*), not as an asset.
 
 # (list) Source files to exclude
-source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer,p4a-recipes,libs
+source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer,p4a-recipes,libs,docs
 source.exclude_patterns = *.apk,*.aab,*.pyc
 
 # (str) Application versioning

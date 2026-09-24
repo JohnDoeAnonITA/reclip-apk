@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/banner.png" alt="ReClip for Android" width="760">
+</p>
+
 # ReClip for Android
 
 APK Android di **ReClip**, con GUI nativa, interfaccia web integrata e ffmpeg

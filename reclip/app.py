@@ -316,13 +316,8 @@ class ReClipHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = unquote(urlparse(self.path).path)
         if path in ("/", "/index.html"):
-            # Italian UI by default; the English original stays available at /en
-            italian = os.path.join(TEMPLATES_DIR, "index_it.html")
-            return self._serve_file(
-                italian if os.path.isfile(italian)
-                else os.path.join(TEMPLATES_DIR, "index.html")
-            )
-        if path in ("/en", "/en/"):
+            # The language is chosen at BUILD time: the CI copies the wanted
+            # template over index.html (see the "Configure variant" step).
             return self._serve_file(os.path.join(TEMPLATES_DIR, "index.html"))
         if path.startswith("/static/"):
             return self._serve_file(os.path.join(STATIC_DIR, os.path.basename(path)))

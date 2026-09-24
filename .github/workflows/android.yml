@@ -12,6 +12,19 @@ on:
 
 jobs:
   build-apk:
+    # Two separate APKs, built in parallel: English and Italian.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lang: en
+            pkg: reclip
+            domain: com.reclip
+            title: ReClip
+          - lang: it
+            pkg: reclipit
+            domain: com.reclipit
+            title: ReClip IT
     # ubuntu-22.04: buildozer's officially supported base. On ubuntu-latest the
     # system Python is 3.14 and p4a's internal venv pip is broken there.
     runs-on: ubuntu-22.04
@@ -20,6 +33,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure UI variant (${{ matrix.lang }})
+        run: |
+          echo "lang=${{ matrix.lang }} pkg=${{ matrix.pkg }}"
+          if [ "${{ matrix.lang }}" = "it" ]; then
+            # Italian APK: the translated template becomes the app's index.html
+            cp reclip/templates/index_it.html reclip/templates/index.html
+            sed -i "s|^package.name = .*|package.name = ${{ matrix.pkg }}|" buildozer.spec
+            sed -i "s|^package.domain = .*|package.domain = ${{ matrix.domain }}|" buildozer.spec
+            sed -i "s|^title = .*|title = ${{ matrix.title }}|" buildozer.spec
+          fi
+          grep -E "^(title|package.name|package.domain) " buildozer.spec
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -211,17 +236,17 @@ jobs:
             --ks-key-alias "$KEYALIAS" \
             --ks-pass "pass:$KEYSTORE_PASS" \
             --key-pass "pass:$KEYALIAS_PASS" \
-            --out bin/reclip-1.0.0-release-signed.apk /tmp/aligned.apk
+            --out "bin/reclip-${{ matrix.lang }}-release-signed.apk" /tmp/aligned.apk
 
           echo "--- signature ---"
-          "${BT}apksigner" verify --print-certs bin/reclip-1.0.0-release-signed.apk | head -6
+          "${BT}apksigner" verify --print-certs "bin/reclip-${{ matrix.lang }}-release-signed.apk" | head -6
           rm -f "$UNSIGNED"
           ls -lh bin/
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: reclip-apk
+          name: reclip-apk-${{ matrix.lang }}
           path: |
             bin/*.apk
             bin/*.aab

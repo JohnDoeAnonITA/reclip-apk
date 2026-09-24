@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-nolog"
+BUILD_ID = "2026-09-24-logbtn"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -50,8 +50,43 @@ def _sdk_int():
         return 99
 
 
-# (the MediaStore log mirror to /sdcard/Download was removed: users should not
-#  see log files. Diagnostics stay in the app's private directory.)
+# Logs are NOT mirrored to Download automatically (users should not see them).
+# They stay in the app's private directory and can be exported on demand with
+# the "Esporta log di debug" button (see _publish_text below).
+
+
+def _publish_text(name, text):
+    """Write `text` into the public Download collection (MediaStore).
+
+    Must be called from the main thread (jnius + ContentResolver).
+    """
+    try:
+        from jnius import autoclass
+
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        resolver = activity.getContentResolver()
+        Downloads = autoclass("android.provider.MediaStore$Downloads")
+        CV = autoclass("android.content.ContentValues")
+        Cols = autoclass("android.provider.MediaStore$MediaColumns")
+
+        values = CV()
+        values.put(Cols.DISPLAY_NAME, name)
+        values.put(Cols.MIME_TYPE, "text/plain")
+        if _sdk_int() >= 29:
+            values.put(Cols.RELATIVE_PATH, "Download")
+        uri = resolver.insert(Downloads.EXTERNAL_CONTENT_URI, values)
+        if uri is None:
+            return False
+        stream = resolver.openOutputStream(uri, "wt")
+        if stream is None:
+            return False
+        stream.write(text.encode("utf-8"))
+        stream.flush()
+        stream.close()
+        return True
+    except Exception:
+        _log("publish text failed:\n" + traceback.format_exc())
+        return False
 
 
 def _log(msg):
@@ -309,11 +344,20 @@ class Root(BoxLayout):
         self.open_btn.bind(on_release=self.open_ui)
         self.add_widget(self.open_btn)
 
-        # Native save path: works even if the WebView download handling fails.
-        self.save_btn = big_button("Salva ultimo download", "#6A1B9A")
-        self.save_btn.disabled = True
-        self.save_btn.bind(on_release=self.save_last)
-        self.add_widget(self.save_btn)
+        # Small, unobtrusive: copies the internal logs into Download on demand
+        # (they are kept hidden otherwise).
+        self.log_btn = Button(
+            text="Esporta log di debug",
+            font_size=dp(14),
+            size_hint=(1, None),
+            height=dp(38),
+            background_normal="",
+            background_down="",
+            background_color=get_color_from_hex("#546E7A"),
+            color=get_color_from_hex("#FFFFFF"),
+        )
+        self.log_btn.bind(on_release=self.export_logs)
+        self.add_widget(self.log_btn)
 
     def _poll_saves(self, _dt):
         """The in-page "Save" button cannot download inside a WebView, so it
@@ -339,22 +383,24 @@ class Root(BoxLayout):
             "http://%s:%s/api/file/%s" % (HOST, PORT, job_id), name
         )
 
-    def save_last(self, *_):
-        _log("save_last tapped")
-        import json as _json
-        import urllib.request
-
-        try:
-            with urllib.request.urlopen(
-                "http://%s:%s/api/last" % (HOST, PORT), timeout=10
-            ) as resp:
-                data = _json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            self.status.text = "Nessun download da salvare"
-            return
-        name = data.get("filename") or "reclip_download"
-        url = "http://%s:%s/api/file/%s" % (HOST, PORT, data.get("id"))
-        self._enqueue_download(url, name)
+    def export_logs(self, *_):
+        """Publish the app-private logs into Download (only on request)."""
+        _log("export_logs tapped")
+        base = os.environ.get("ANDROID_PRIVATE") or "/tmp"
+        exported = 0
+        for name in ("reclip_boot.log", "reclip_error.log"):
+            path = os.path.join(base, name)
+            try:
+                with open(path, "r") as handle:
+                    text = handle.read()
+            except OSError:
+                continue
+            if _publish_text(name, text):
+                exported += 1
+        self.status.text = (
+            "Log esportati in Download" if exported
+            else "Nessun log da esportare"
+        )
 
     def _enqueue_download(self, url, name):
         """Download from our own server and publish it into Download/.

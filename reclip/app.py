@@ -86,7 +86,7 @@ def _mirror_error(text):
 
         activity = autoclass("org.kivy.android.PythonActivity").mActivity
         resolver = activity.getContentResolver()
-        MS = autoclass("android.provider.MediaStore")
+        Downloads = autoclass("android.provider.MediaStore$Downloads")
         CV = autoclass("android.content.ContentValues")
         Cols = autoclass("android.provider.MediaStore$MediaColumns")
 
@@ -102,7 +102,7 @@ def _mirror_error(text):
                 sdk = 99
             if sdk >= 29:
                 vals.put(Cols.RELATIVE_PATH, "Download")
-            _err_uri = resolver.insert(MS.Downloads.EXTERNAL_CONTENT_URI, vals)
+            _err_uri = resolver.insert(Downloads.EXTERNAL_CONTENT_URI, vals)
         if _err_uri is None:
             return
         stream = resolver.openOutputStream(_err_uri, "wt")

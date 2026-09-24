@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-progress"
+BUILD_ID = "2026-09-24-nested"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -431,7 +431,7 @@ class Root(BoxLayout):
 
                 activity = autoclass("org.kivy.android.PythonActivity").mActivity
                 resolver = activity.getContentResolver()
-                MS = autoclass("android.provider.MediaStore")
+                Downloads = autoclass("android.provider.MediaStore$Downloads")
                 CV = autoclass("android.content.ContentValues")
                 Cols = autoclass("android.provider.MediaStore$MediaColumns")
 
@@ -448,7 +448,7 @@ class Root(BoxLayout):
                 vals.put(Cols.MIME_TYPE, mime)
                 if _sdk_int() >= 29:
                     vals.put(Cols.RELATIVE_PATH, "Download")
-                uri = resolver.insert(MS.Downloads.EXTERNAL_CONTENT_URI, vals)
+                uri = resolver.insert(Downloads.EXTERNAL_CONTENT_URI, vals)
                 if uri is None:
                     _log("save: MediaStore insert returned None")
                     return

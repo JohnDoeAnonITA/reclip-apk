@@ -757,6 +757,18 @@
 
       if (btn) { btn.disabled = false; btn.textContent = 'Scarica tutto'; }
     }
-  </script>
+  
+    window.__reclipReady = true;
+    </script>
+<div id="legacy-warn" style="display:none;max-width:620px;margin:40px auto;padding:20px;border:1px solid #c43d3d;border-radius:10px;background:rgba(196,61,61,0.06);color:#c43d3d;font-family:monospace;font-size:0.8rem;line-height:1.6">&#9888; La WebView di questo dispositivo è troppo vecchia per l'interfaccia.<br>Aggiorna <b>Android System WebView</b> (o Chrome) dal Play Store e riapri l'app.</div>
+<script>
+/* solo ES5: gira anche se lo script principale non è stato interpretato */
+window.addEventListener("load", function () {
+  if (!window.__reclipReady) {
+    var w = document.getElementById("legacy-warn");
+    if (w) { w.style.display = "block"; }
+  }
+});
+</script>
 </body>
 </html>

@@ -48,11 +48,81 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --upgrade "buildozer==1.5.0" "cython==0.29.36"
 
-      - name: Bundle ffmpeg/ffprobe as native libs
+      - name: Build Android-native ffmpeg/ffprobe (NDK, with libmp3lame)
+        # A glibc binary cannot run on Android: seccomp kills it with SIGSYS.
+        # So compile ffmpeg for Android (bionic) with the NDK. Non-fatal: if this
+        # fails, the next step provides a fallback so the APK still builds.
+        continue-on-error: true
+        run: |
+          set -e
+          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$NDK" ] || { echo "no NDK found"; exit 1; }
+          echo "NDK=$NDK"
+          TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          API=24
+          JOBS=$(nproc)
+          W=/tmp/ffb
+          rm -rf "$W"; mkdir -p "$W"; cd "$W"
+
+          curl -fsSL -o lame.tar.gz \
+            https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+          tar xf lame.tar.gz
+          curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
+          tar xf ffmpeg.tar.xz
+
+          build_one() {
+            ABI=$1; ARCH=$2; CPU=$3; CCPREFIX=$4; HOST=$5; EXTRA=$6
+            echo "=== $ABI (arch=$ARCH cc=$CCPREFIX) ==="
+            cd "$W"
+            rm -rf "lame-$ABI"; cp -r lame-3.100 "lame-$ABI"; cd "lame-$ABI"
+            ./configure --host=$HOST --prefix="$W/lame-$ABI" \
+              --disable-shared --enable-static --disable-frontend \
+              CC="$TC/bin/${CCPREFIX}${API}-clang" \
+              AR="$TC/bin/llvm-ar" RANLIB="$TC/bin/llvm-ranlib" STRIP="$TC/bin/llvm-strip" \
+              CFLAGS="-O2 -fPIC" >/dev/null
+            make -j"$JOBS" >/dev/null
+            make install >/dev/null
+
+            cd "$W"
+            rm -rf "ff-$ABI"; cp -r ffmpeg-7.1 "ff-$ABI"; cd "ff-$ABI"
+            ./configure \
+              --prefix="$W/ff-$ABI" \
+              --target-os=android --arch=$ARCH --cpu=$CPU $EXTRA \
+              --enable-cross-compile --sysroot="$TC/sysroot" \
+              --cc="$TC/bin/${CCPREFIX}${API}-clang" \
+              --cxx="$TC/bin/${CCPREFIX}${API}-clang++" \
+              --ar="$TC/bin/llvm-ar" --nm="$TC/bin/llvm-nm" \
+              --ranlib="$TC/bin/llvm-ranlib" --strip="$TC/bin/llvm-strip" \
+              --disable-shared --enable-static \
+              --disable-doc --disable-ffplay --disable-debug --disable-network \
+              --enable-libmp3lame \
+              --extra-cflags="-I$W/lame-$ABI/include -O2" \
+              --extra-ldflags="-L$W/lame-$ABI/lib" >/dev/null
+            make -j"$JOBS" >/dev/null
+            file ffmpeg ffprobe
+          }
+
+          build_one arm64-v8a   aarch64 armv8-a aarch64-linux-android        aarch64-linux ""
+          build_one armeabi-v7a arm     armv7-a armv7a-linux-androideabi     arm-linux     "--enable-neon"
+
+          mkdir -p libs/arm64-v8a libs/armeabi-v7a
+          cp "$W/ff-arm64-v8a/ffmpeg"    libs/arm64-v8a/libffmpeg.so
+          cp "$W/ff-arm64-v8a/ffprobe"   libs/arm64-v8a/libffprobe.so
+          cp "$W/ff-armeabi-v7a/ffmpeg"  libs/armeabi-v7a/libffmpeg.so
+          cp "$W/ff-armeabi-v7a/ffprobe" libs/armeabi-v7a/libffprobe.so
+          find libs -type f -exec ls -lh {} \;
+
+      - name: Fallback ffmpeg libs (only if the NDK build failed)
         run: |
           set -e
           python3 - <<'PY'
-          import urllib.request
+          import os, urllib.request
+          need = [p for p in ("libs/arm64-v8a/libffmpeg.so",
+                              "libs/armeabi-v7a/libffmpeg.so") if not os.path.exists(p)]
+          if not need:
+              print("NDK binaries present, no fallback needed")
+              raise SystemExit(0)
+          print("missing:", need, "-> downloading static fallback")
           urllib.request.urlretrieve(
               "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz",
               "/tmp/ff_arm64.tar.xz")
@@ -63,12 +133,10 @@ jobs:
           mkdir -p /tmp/x64 /tmp/xhf libs/arm64-v8a libs/armeabi-v7a
           tar -xJf /tmp/ff_arm64.tar.xz -C /tmp/x64
           tar -xJf /tmp/ff_armhf.tar.xz -C /tmp/xhf
-          # Android 10+ makes the app data dir noexec; files under the APK's
-          # lib/<abi>/ ARE executable, so ship the binaries as lib*.so there.
-          cp /tmp/x64/ffmpeg-*-arm64-static/ffmpeg  libs/arm64-v8a/libffmpeg.so
-          cp /tmp/x64/ffmpeg-*-arm64-static/ffprobe libs/arm64-v8a/libffprobe.so
-          cp /tmp/xhf/ffmpeg-*-armhf-static/ffmpeg  libs/armeabi-v7a/libffmpeg.so
-          cp /tmp/xhf/ffmpeg-*-armhf-static/ffprobe libs/armeabi-v7a/libffprobe.so
+          cp -n /tmp/x64/ffmpeg-*-arm64-static/ffmpeg  libs/arm64-v8a/libffmpeg.so  || true
+          cp -n /tmp/x64/ffmpeg-*-arm64-static/ffprobe libs/arm64-v8a/libffprobe.so || true
+          cp -n /tmp/xhf/ffmpeg-*-armhf-static/ffmpeg  libs/armeabi-v7a/libffmpeg.so  || true
+          cp -n /tmp/xhf/ffmpeg-*-armhf-static/ffprobe libs/armeabi-v7a/libffprobe.so || true
           find libs -type f -exec ls -lh {} \;
 
       - name: Build APK

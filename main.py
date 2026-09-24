@@ -5,9 +5,10 @@ Control panel:
   * "Ferma server"           -> shuts it down cleanly
   * "Apri interfaccia web"   -> opens the UI in an in-app WebView (BACK closes it)
 
-Diagnostics: every step is logged to /sdcard/Android/data/<pkg>/files/reclip_boot.log
-(visible over USB/MTP) and any Python exception is displayed on screen instead of
-silently closing the app.
+Diagnostics: every boot step is mirrored to
+    /sdcard/Download/reclip_boot.log
+via MediaStore (so it is visible from the phone's Files/Downloads app), and any
+Python exception is shown on screen instead of silently closing the app.
 """
 
 import os
@@ -22,33 +23,67 @@ sys.path.insert(0, os.path.join(HERE, "reclip"))
 HOST = "127.0.0.1"
 PORT = 8899
 
+_LOG_NAME = "reclip_boot.log"
+_LOG_LINES = []
+_DL_URI = None
+
 
 # --------------------------------------------------------------------------
-# Logging (to a user-reachable file + stdout/logcat)
+# Logging: app-private file + copy into /sdcard/Download via MediaStore
 # --------------------------------------------------------------------------
-def _log_path():
-    # Prefer the external files dir: readable over USB/MTP.
+def _log_app_path():
+    base = os.environ.get("ANDROID_PRIVATE") or HERE
+    return os.path.join(base, _LOG_NAME)
+
+
+def _mirror_to_downloads(text):
+    global _DL_URI
     try:
         from jnius import autoclass
 
         activity = autoclass("org.kivy.android.PythonActivity").mActivity
-        ext = activity.getExternalFilesDir(None)
-        if ext is not None:
-            return os.path.join(ext.getAbsolutePath(), "reclip_boot.log")
+        resolver = activity.getContentResolver()
+        MediaStore = autoclass("android.provider.MediaStore")
+        CV = autoclass("android.content.ContentValues")
+        Cols = autoclass("android.provider.MediaStore$MediaColumns")
+        Build = autoclass("android.os.Build")
+
+        if _DL_URI is None:
+            values = CV()
+            values.put(Cols.DISPLAY_NAME, _LOG_NAME)
+            values.put(Cols.MIME_TYPE, "text/plain")
+            if Build.VERSION.SDK_INT >= 29:
+                values.put(Cols.RELATIVE_PATH, "Download")
+            _DL_URI = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+
+        if _DL_URI is None:
+            return
+        stream = resolver.openOutputStream(_DL_URI, "wt")
+        if stream is None:
+            return
+        stream.write(text.encode("utf-8"))
+        stream.flush()
+        stream.close()
     except Exception:
-        pass
-    base = os.environ.get("ANDROID_PRIVATE") or HERE
-    return os.path.join(base, "reclip_boot.log")
+        # last resort: direct write (only works with legacy storage)
+        try:
+            with open("/sdcard/Download/" + _LOG_NAME, "w") as handle:
+                handle.write(text)
+        except Exception:
+            pass
 
 
 def _log(msg):
+    line = str(msg)
+    _LOG_LINES.append(line)
     try:
-        with open(_log_path(), "a") as handle:
-            handle.write(str(msg) + "\n")
+        with open(_log_app_path(), "a") as handle:
+            handle.write(line + "\n")
     except Exception:
         pass
+    _mirror_to_downloads("\n".join(_LOG_LINES) + "\n")
     try:
-        print("[reclip] " + str(msg), file=sys.stdout, flush=True)
+        print("[reclip] " + line, file=sys.stdout, flush=True)
     except Exception:
         pass
 

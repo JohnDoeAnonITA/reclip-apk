@@ -154,21 +154,26 @@ _log("env ok, abi=" + _primary_abi())
 # Server control
 # --------------------------------------------------------------------------
 class ServerThread(threading.Thread):
+    """Runs ReClip's stdlib HTTP server in a background thread."""
+
     def __init__(self):
         super().__init__(daemon=True)
-        from werkzeug.serving import make_server
+        from app import make_server
 
-        from app import app as flask_app
-
-        self._ctx = flask_app.app_context()
-        self._srv = make_server(HOST, PORT, flask_app, threaded=True)
+        self._srv = make_server(HOST, PORT)
 
     def run(self):
-        with self._ctx:
+        try:
             self._srv.serve_forever()
+        except Exception:
+            _log("server serve_forever failed:\n" + traceback.format_exc())
 
     def stop(self):
-        self._srv.shutdown()
+        try:
+            self._srv.shutdown()
+            self._srv.server_close()
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------

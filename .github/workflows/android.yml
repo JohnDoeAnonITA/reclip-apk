@@ -120,7 +120,7 @@ jobs:
         run: |
           set -e
           python3 - <<'PY'
-          import os, urllib.request
+          import glob, os, shutil, tarfile, urllib.request
           need = [p for p in ("libs/arm64-v8a/libffmpeg.so",
                               "libs/armeabi-v7a/libffmpeg.so") if not os.path.exists(p)]
           if not need:
@@ -133,15 +133,29 @@ jobs:
           urllib.request.urlretrieve(
               "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz",
               "/tmp/ff_armhf.tar.xz")
+
+          # Everything in Python: bash lines after the heredoc would run anyway
+          # and fail (that skipped the whole APK build once).
+          for archive, tag, abi in (("/tmp/ff_arm64.tar.xz", "arm64", "arm64-v8a"),
+                                    ("/tmp/ff_armhf.tar.xz", "armhf", "armeabi-v7a")):
+              dest = "/tmp/ffx_" + abi
+              os.makedirs(dest, exist_ok=True)
+              with tarfile.open(archive) as tar:
+                  tar.extractall(dest)
+              found = glob.glob(os.path.join(dest, "ffmpeg-*-%s-static" % tag))
+              if not found:
+                  raise SystemExit("no extracted dir for " + abi)
+              os.makedirs("libs/%s" % abi, exist_ok=True)
+              for name in ("ffmpeg", "ffprobe"):
+                  target = "libs/%s/lib%s.so" % (abi, name)
+                  if not os.path.exists(target):
+                      shutil.copy(os.path.join(found[0], name), target)
+
+          for abi in ("arm64-v8a", "armeabi-v7a"):
+              for name in ("libffmpeg.so", "libffprobe.so"):
+                  path = "libs/%s/%s" % (abi, name)
+                  print(path, os.path.getsize(path))
           PY
-          mkdir -p /tmp/x64 /tmp/xhf libs/arm64-v8a libs/armeabi-v7a
-          tar -xJf /tmp/ff_arm64.tar.xz -C /tmp/x64
-          tar -xJf /tmp/ff_armhf.tar.xz -C /tmp/xhf
-          cp -n /tmp/x64/ffmpeg-*-arm64-static/ffmpeg  libs/arm64-v8a/libffmpeg.so  || true
-          cp -n /tmp/x64/ffmpeg-*-arm64-static/ffprobe libs/arm64-v8a/libffprobe.so || true
-          cp -n /tmp/xhf/ffmpeg-*-armhf-static/ffmpeg  libs/armeabi-v7a/libffmpeg.so  || true
-          cp -n /tmp/xhf/ffmpeg-*-armhf-static/ffprobe libs/armeabi-v7a/libffprobe.so || true
-          find libs -type f -exec ls -lh {} \;
 
       - name: Build APK
         run: |

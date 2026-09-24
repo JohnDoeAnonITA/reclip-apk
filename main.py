@@ -146,6 +146,20 @@ def _android_native_lib(name):
     return None
 
 
+def _guess_filename(content_disposition, url):
+    """Best-effort filename from a Content-Disposition header or the URL."""
+    name = ""
+    if content_disposition:
+        for part in content_disposition.split(";"):
+            part = part.strip()
+            if part.lower().startswith("filename="):
+                name = part.split("=", 1)[1].strip().strip('"')
+                break
+    if not name:
+        name = url.rsplit("/", 1)[-1].split("?")[0] or "reclip_download"
+    return name
+
+
 def _probe_binary(path):
     """One-line description of whether `path` can actually be executed."""
     import subprocess
@@ -253,6 +267,7 @@ class Root(BoxLayout):
         self.server = None
         self._webview = None
         self._back_listener = None
+        self._dl_listener = None
 
         self.add_widget(Label(
             text="ReClip",
@@ -338,7 +353,7 @@ class Root(BoxLayout):
         url = "http://%s:%s/" % (HOST, PORT)
         try:
             from android.runnable import run_on_ui_thread
-            from jnius import PythonJavaClass, autoclass, java_method
+            from jnius import PythonJavaClass, autoclass, cast, java_method
         except Exception:
             import webbrowser
 
@@ -376,6 +391,62 @@ class Root(BoxLayout):
             _log("back listener failed:\n" + traceback.format_exc())
             self._back_listener = None
 
+        # --- downloads: an Android WebView IGNORES downloads unless a
+        # DownloadListener is registered, which is why "Save" did nothing.
+        DownloadManager = autoclass("android.app.DownloadManager")
+        DMRequest = autoclass("android.app.DownloadManager$Request")
+        Context = autoclass("android.content.Context")
+        Environment = autoclass("android.os.Environment")
+        Uri = autoclass("android.net.Uri")
+        Intent = autoclass("android.content.Intent")
+        activity_ref = activity
+
+        class DownloadListener(PythonJavaClass):
+            __javainterfaces__ = ["android/webkit/DownloadListener"]
+            __javacontext__ = "app"
+
+            @java_method(
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;"
+                "Ljava/lang/String;J)V"
+            )
+            def onDownloadStart(self, dl_url, user_agent, content_disposition,
+                                mimetype, content_length):
+                name = _guess_filename(content_disposition, dl_url)
+                _log("download requested: %s -> %s" % (dl_url, name))
+                try:
+                    manager = cast(
+                        "android.app.DownloadManager",
+                        activity_ref.getSystemService(Context.DOWNLOAD_SERVICE),
+                    )
+                    request = DMRequest(Uri.parse(dl_url))
+                    if mimetype:
+                        request.setMimeType(mimetype)
+                    request.setTitle(name)
+                    request.setDescription("ReClip")
+                    request.setNotificationVisibility(
+                        DMRequest.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                    )
+                    request.setDestinationInExternalPublicDir(
+                        Environment.DIRECTORY_DOWNLOADS, name
+                    )
+                    manager.enqueue(request)
+                    _log("download enqueued in DownloadManager")
+                    return
+                except Exception:
+                    _log("DownloadManager failed:\n" + traceback.format_exc())
+                try:
+                    activity_ref.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(dl_url))
+                    )
+                except Exception:
+                    _log("browser fallback failed:\n" + traceback.format_exc())
+
+        try:
+            self._dl_listener = DownloadListener()
+        except Exception:
+            _log("download listener failed:\n" + traceback.format_exc())
+            self._dl_listener = None
+
         @run_on_ui_thread
         def _show():
             wv = WebView(activity)
@@ -385,6 +456,8 @@ class Root(BoxLayout):
             wv.setWebViewClient(WebViewClient())
             if self._back_listener is not None:
                 wv.setOnKeyListener(self._back_listener)
+            if self._dl_listener is not None:
+                wv.setDownloadListener(self._dl_listener)
             wv.loadUrl(url)
             activity.addContentView(wv, LayoutParams(-1, -1))
             self._webview = wv

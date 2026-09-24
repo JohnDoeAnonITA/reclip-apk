@@ -19,14 +19,14 @@ source.include_exts = py,png,jpg,jpeg,svg,html,css,js,json,txt
 source.include_patterns = ffmpeg_arm64,ffmpeg_armhf
 
 # (list) Source files to exclude
-source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer
+source.exclude_dirs = .git,__pycache__,venv,downloads,bin,.buildozer,p4a-recipes
 source.exclude_patterns = *.apk,*.aab,*.pyc
 
 # (str) Application versioning
 version = 1.0.0
 
 # (list) Application requirements
-requirements = python3,kivy,flask,yt-dlp,certifi,libffi,openssl,android
+requirements = python3,kivy,flask,blinker,yt-dlp,certifi,libffi,openssl,android
 
 # (str) Supported orientation
 orientation = portrait
@@ -73,3 +73,7 @@ p4a.bootstrap = sdl2
 # p4a's internal venv -> "cannot import name 'BuildDependencyInstallError'".
 p4a.fork = kivy
 p4a.branch = v2024.01.21
+
+# Local recipe overrides (modern Flask; p4a's own recipe pins Flask 2.0.3,
+# incompatible with the Werkzeug 3.x that pip installs).
+p4a.local_recipes = ./p4a-recipes

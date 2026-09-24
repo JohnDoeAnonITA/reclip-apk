@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-autostart"
+BUILD_ID = "2026-09-24-mediasave"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -84,7 +84,14 @@ def _log(msg):
             handle.write(line + "\n")
     except Exception:
         pass
-    _mirror_to_downloads("\n".join(_LOG_LINES) + "\n")
+    text = "\n".join(_LOG_LINES) + "\n"
+    # MediaStore needs the main thread (jnius is not attached in workers).
+    try:
+        from kivy.clock import Clock
+
+        Clock.schedule_once(lambda _dt: _mirror_to_downloads(text), 0)
+    except Exception:
+        _mirror_to_downloads(text)
     try:
         print("[reclip] " + line, file=sys.stdout, flush=True)
     except Exception:
@@ -374,37 +381,76 @@ class Root(BoxLayout):
         self._enqueue_download(url, name)
 
     def _enqueue_download(self, url, name):
-        try:
-            from jnius import autoclass, cast
+        """Download from our own server and publish it into Download/.
 
-            DownloadManager = autoclass("android.app.DownloadManager")
-            DMRequest = autoclass("android.app.DownloadManager$Request")
-            Context = autoclass("android.content.Context")
-            Environment = autoclass("android.os.Environment")
-            Uri = autoclass("android.net.Uri")
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+        MediaStore is used instead of DownloadManager: DownloadManager runs in
+        the system process and its localhost download failed silently.
+        """
+        self.status.text = "Salvataggio in corso:\n%s" % name
 
-            activity = PythonActivity.mActivity
-            manager = cast(
-                "android.app.DownloadManager",
-                activity.getSystemService(Context.DOWNLOAD_SERVICE),
-            )
-            request = DMRequest(Uri.parse(url))
-            request.setTitle(name)
-            request.setDescription("ReClip")
-            request.setNotificationVisibility(
-                DMRequest.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-            )
-            request.setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS, name
-            )
-            manager.enqueue(request)
-            _log("native save enqueued: %s" % name)
-            self.status.text = "Salvataggio avviato:\n%s" % name
-        except Exception:
-            tb = traceback.format_exc()
-            _log("native save failed:\n" + tb)
-            self.status.text = "Errore salvataggio:\n" + tb[-200:]
+        def worker():
+            import urllib.request
+
+            app_dir = os.environ.get("ANDROID_PRIVATE") or "/tmp"
+            tmp = os.path.join(app_dir, "reclip_dl_tmp")
+            try:
+                _log("save: downloading via localhost -> %s" % name)
+                with urllib.request.urlopen(url, timeout=900) as resp, open(tmp, "wb") as out:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                size = os.path.getsize(tmp)
+                _log("save: downloaded %d bytes" % size)
+
+                from jnius import autoclass
+
+                activity = autoclass("org.kivy.android.PythonActivity").mActivity
+                resolver = activity.getContentResolver()
+                MS = autoclass("android.provider.MediaStore")
+                CV = autoclass("android.content.ContentValues")
+                Cols = autoclass("android.provider.MediaStore$MediaColumns")
+                Build = autoclass("android.os.Build")
+
+                lower = name.lower()
+                if lower.endswith(".mp4"):
+                    mime = "video/mp4"
+                elif lower.endswith(".mp3"):
+                    mime = "audio/mpeg"
+                else:
+                    mime = "application/octet-stream"
+
+                vals = CV()
+                vals.put(Cols.DISPLAY_NAME, name)
+                vals.put(Cols.MIME_TYPE, mime)
+                if Build.VERSION.SDK_INT >= 29:
+                    vals.put(Cols.RELATIVE_PATH, "Download")
+                uri = resolver.insert(MS.Downloads.EXTERNAL_CONTENT_URI, vals)
+                if uri is None:
+                    _log("save: MediaStore insert returned None")
+                    return
+                stream = resolver.openOutputStream(uri, "w")
+                with open(tmp, "rb") as src:
+                    while True:
+                        chunk = src.read(65536)
+                        if not chunk:
+                            break
+                        stream.write(chunk)
+                stream.flush()
+                stream.close()
+                _log("save: OK -> Download/%s" % name)
+            except Exception:
+                _log("save FAILED:\n" + traceback.format_exc())
+            finally:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+        thread = threading.Thread(target=worker)
+        thread.daemon = True
+        thread.start()
 
     def start_server(self, *_):
         _log("start_server tapped")
@@ -605,17 +651,19 @@ class Root(BoxLayout):
         @run_on_ui_thread
         def _hide():
             try:
+                from jnius import cast
+
                 container = getattr(self, "_container", None)
-                if container is not None:
-                    grand = container.getParent()
-                    if grand is not None:
-                        grand.removeView(container)
-                    self._container = None
-                else:
-                    parent = wv.getParent()
-                    if parent is not None:
-                        parent.removeView(wv)
-                wv.destroy()
+                target = container if container is not None else wv
+                parent = target.getParent()
+                if parent is not None:
+                    # getParent() returns a ViewParent interface: needs cast.
+                    cast("android.view.ViewGroup", parent).removeView(target)
+                self._container = None
+                try:
+                    wv.destroy()
+                except Exception:
+                    pass
                 _log("webview closed")
             except Exception:
                 _log("close webview failed:\n" + traceback.format_exc())

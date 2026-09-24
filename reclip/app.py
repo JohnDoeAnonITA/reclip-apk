@@ -49,6 +49,26 @@ CONTENT_TYPES = {
 jobs = {}
 
 
+def ensure_streams():
+    """p4a/Kivy can leave sys.stdout / sys.stderr as a plain `str` instead of a
+    writable stream. yt-dlp writes error messages to sys.stderr, which then
+    fails with "'str' object has no attribute 'write'" and hides the real error.
+    Replace anything that is not writable with a devnull stream.
+    """
+    import sys as _sys
+
+    for name in ("stdout", "stderr"):
+        stream = getattr(_sys, name, None)
+        if stream is None or not hasattr(stream, "write"):
+            try:
+                setattr(_sys, name, open(os.devnull, "w"))
+            except Exception:
+                pass
+
+
+ensure_streams()
+
+
 def ytdlp_opts(**extra):
     """Base yt-dlp options; adds the bundled ffmpeg when available."""
     opts = {

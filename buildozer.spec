@@ -25,6 +25,9 @@ source.exclude_patterns = *.apk,*.aab,*.pyc
 # (str) Application versioning
 version = 1.0.0
 
+# (str) Application icon (PNG in the project root)
+icon.filename = %(source.dir)s/icon.png
+
 # (list) Application requirements
 requirements = python3,kivy,yt-dlp,certifi,libffi,openssl,android
 

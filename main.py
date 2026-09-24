@@ -186,6 +186,8 @@ try:
     from kivy.uix.button import Button
     from kivy.uix.label import Label
     from kivy.uix.scrollview import ScrollView
+    from kivy.metrics import dp
+    from kivy.utils import get_color_from_hex
 
     _log("kivy imported ok")
 except Exception:
@@ -195,23 +197,56 @@ except Exception:
 
 class Root(BoxLayout):
     def __init__(self, **kwargs):
-        super().__init__(orientation="vertical", padding=24, spacing=16, **kwargs)
+        super().__init__(
+            orientation="vertical", padding=dp(24), spacing=dp(18), **kwargs
+        )
         self.server = None
         self._webview = None
         self._back_listener = None
 
-        self.status = Label(text="Server fermo", size_hint_y=0.4, halign="center")
+        self.add_widget(Label(
+            text="ReClip",
+            font_size=dp(38),
+            bold=True,
+            size_hint_y=None,
+            height=dp(70),
+            color=get_color_from_hex("#5BC8FF"),
+        ))
+
+        self.status = Label(
+            text="Server fermo",
+            font_size=dp(19),
+            halign="center",
+            valign="middle",
+            color=get_color_from_hex("#E0E0E0"),
+        )
+        self.status.bind(size=lambda lbl, size: setattr(lbl, "text_size", size))
         self.add_widget(self.status)
 
-        self.start_btn = Button(text="Avvia server", font_size=20)
+        def big_button(text, bg):
+            return Button(
+                text=text,
+                font_size=dp(25),
+                bold=True,
+                size_hint=(1, None),
+                height=dp(78),
+                background_normal="",
+                background_down="",
+                background_color=get_color_from_hex(bg),
+                color=get_color_from_hex("#FFFFFF"),
+            )
+
+        self.start_btn = big_button("Avvia server", "#2E7D32")
         self.start_btn.bind(on_release=self.start_server)
         self.add_widget(self.start_btn)
 
-        self.stop_btn = Button(text="Ferma server", font_size=20, disabled=True)
+        self.stop_btn = big_button("Ferma server", "#B71C1C")
+        self.stop_btn.disabled = True
         self.stop_btn.bind(on_release=self.stop_server)
         self.add_widget(self.stop_btn)
 
-        self.open_btn = Button(text="Apri interfaccia web", font_size=20, disabled=True)
+        self.open_btn = big_button("Apri interfaccia web", "#1565C0")
+        self.open_btn.disabled = True
         self.open_btn.bind(on_release=self.open_ui)
         self.add_widget(self.open_btn)
 

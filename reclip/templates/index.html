@@ -663,7 +663,10 @@
             c.status = 'done';
             c.filename = data.filename;
             renderCard(idx);
-            saveCard(idx);
+            // Note: no auto-save here. In a normal browser saveCard() is
+            // harmless, but inside the Android WebView navigating away on its
+            // own is confusing; the user presses "Save" (or the app's native
+            // "Salva ultimo download" button) when ready.
           } else if (data.status === 'error') {
             clearInterval(iv);
             c.status = 'error';

@@ -260,19 +260,40 @@ class ReClipHandler(BaseHTTPRequestHandler):
             return {}
 
     def _serve_file(self, path, download_name=None):
+        # Streamed in chunks: reading a large video fully into memory made the
+        # handler die with MemoryError, closing the socket with no response
+        # (the browser then showed net::ERR_EMPTY_RESPONSE).
         if not path or not os.path.isfile(path):
             return self._json({"error": "File not found"}, 404)
         try:
-            with open(path, "rb") as handle:
-                data = handle.read()
+            size = os.path.getsize(path)
         except OSError as exc:
             return self._json({"error": str(exc)}, 500)
+
         ctype = CONTENT_TYPES.get(os.path.splitext(path)[1].lower(),
                                   "application/octet-stream")
-        extra = {}
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(size))
         if download_name:
-            extra["Content-Disposition"] = 'attachment; filename="%s"' % download_name
-        self._send(200, data, ctype, extra)
+            safe = download_name.replace('"', "")
+            self.send_header(
+                "Content-Disposition", 'attachment; filename="%s"' % safe
+            )
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        try:
+            with open(path, "rb") as handle:
+                while True:
+                    chunk = handle.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            log_error("SERVE FILE FAILED", traceback.format_exc())
 
     # -- routes -------------------------------------------------------------
     def do_GET(self):

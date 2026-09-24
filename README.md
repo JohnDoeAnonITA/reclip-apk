@@ -40,9 +40,19 @@ Twitter/X, Reddit, Facebook, Vimeo, Twitch…) straight to your phone.
 
 They have different package names, so you can **install both** side by side.
 
-## Installation
+## Compatibility
 
-**Requirements:** Android 7.0 or newer, arm64 or armeabi-v7a device.
+| | |
+|---|---|
+| **Android** | **7.0 or newer** (API 24+). It does **not** install on Android 5/6. |
+| **Feature phones (non-Android)** | ❌ not supported — no APK can run there |
+| **CPU** | **arm64-v8a** (all modern phones) and **armeabi-v7a** (32-bit devices) |
+| **Emulators (x86/x86_64)** | not included |
+| **WebView** | needs a reasonably up-to-date *Android System WebView* / Chrome: on a very old WebView the interface cannot load |
+| **RAM** | 2 GB or more recommended (Python + WebView): with 512 MB–1 GB it runs, but slowly |
+| **Storage** | the APK is ~82 MB, plus the space for the files you download |
+
+## Installation
 
 1. Download the APK you want from the [**Releases**](../../releases) page
    (`reclip-en-release-signed.apk` or `reclip-it-release-signed.apk`).

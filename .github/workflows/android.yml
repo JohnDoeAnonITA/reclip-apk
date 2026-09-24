@@ -6,25 +6,45 @@ name: Build ReClip APK
 # the well-tested combination.
 
 on:
-  push:
-    branches: [main, master]
+  # Manual only: choose which variant(s) to build, so a push never starts an
+  # unwanted 40-minute run.
   workflow_dispatch:
+    inputs:
+      variant:
+        description: "Which APK to build: all, en or it"
+        required: false
+        default: "all"
+        type: choice
+        options: [all, en, it]
 
 jobs:
+  # Turns the chosen variant into a build matrix.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        run: |
+          V="${{ github.event.inputs.variant }}"
+          [ -z "$V" ] && V="all"
+          EN='{"lang":"en","pkg":"reclip","domain":"com.reclip","title":"ReClip"}'
+          IT='{"lang":"it","pkg":"reclipit","domain":"com.reclipit","title":"ReClip IT"}'
+          case "$V" in
+            en) M="{\"include\":[$EN]}";;
+            it) M="{\"include\":[$IT]}";;
+            *)  M="{\"include\":[$EN,$IT]}";;
+          esac
+          echo "building: $M"
+          echo "matrix=$M" >> "$GITHUB_OUTPUT"
+
   build-apk:
-    # Two separate APKs, built in parallel: English and Italian.
+    needs: setup
+    # English and Italian are separate APKs (different package names).
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - lang: en
-            pkg: reclip
-            domain: com.reclip
-            title: ReClip
-          - lang: it
-            pkg: reclipit
-            domain: com.reclipit
-            title: ReClip IT
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     # ubuntu-22.04: buildozer's officially supported base. On ubuntu-latest the
     # system Python is 3.14 and p4a's internal venv pip is broken there.
     runs-on: ubuntu-22.04
@@ -37,13 +57,16 @@ jobs:
       - name: Configure UI variant (${{ matrix.lang }})
         run: |
           echo "lang=${{ matrix.lang }} pkg=${{ matrix.pkg }}"
+          # GUI language (the Kivy strings in main.py)
+          sed -i "s|^LANG = .*|LANG = \"${{ matrix.lang }}\"|" main.py
+          sed -i "s|^package.name = .*|package.name = ${{ matrix.pkg }}|" buildozer.spec
+          sed -i "s|^package.domain = .*|package.domain = ${{ matrix.domain }}|" buildozer.spec
+          sed -i "s|^title = .*|title = ${{ matrix.title }}|" buildozer.spec
           if [ "${{ matrix.lang }}" = "it" ]; then
-            # Italian APK: the translated template becomes the app's index.html
+            # Italian web UI: the translated template becomes index.html
             cp reclip/templates/index_it.html reclip/templates/index.html
-            sed -i "s|^package.name = .*|package.name = ${{ matrix.pkg }}|" buildozer.spec
-            sed -i "s|^package.domain = .*|package.domain = ${{ matrix.domain }}|" buildozer.spec
-            sed -i "s|^title = .*|title = ${{ matrix.title }}|" buildozer.spec
           fi
+          grep -E "^LANG" main.py
           grep -E "^(title|package.name|package.domain) " buildozer.spec
 
       - name: Set up Python 3.11

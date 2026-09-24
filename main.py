@@ -26,6 +26,55 @@ PORT = 8899
 # Bumped every build so the log tells us which APK actually ran.
 BUILD_ID = "2026-09-24-it"
 
+# ---------------------------------------------------------------------------
+# UI language. The CI patches this single line per build variant (en / it).
+# ---------------------------------------------------------------------------
+LANG = "it"
+
+STRINGS = {
+    "it": {
+        "start": "Avvia server",
+        "stop": "Ferma server",
+        "open": "Apri interfaccia web",
+        "close": T("close"),
+        "export": "Esporta log di debug",
+        "stopped": "Server fermo",
+        "starting": "Avvio in corso...",
+        "running": "Server attivo\nhttp://%s:%s",
+        "start_err": "Errore avvio:\n",
+        "saving": "Salvataggio in corso:\n%s",
+        "saved": "Salvato in Download:\n%s",
+        "save_err": "Errore salvataggio",
+        "logs_ok": "Log esportati in Download",
+        "no_logs": "Nessun log da esportare",
+    },
+    "en": {
+        "start": "Start server",
+        "stop": "Stop server",
+        "open": "Open web interface",
+        "close": "< Close web interface",
+        "export": "Export debug logs",
+        "stopped": "Server stopped",
+        "starting": "Starting...",
+        "running": "Server running\nhttp://%s:%s",
+        "start_err": "Start error:\n",
+        "saving": "Saving:\n%s",
+        "saved": "Saved to Downloads:\n%s",
+        "save_err": "Save error",
+        "logs_ok": "Logs exported to Downloads",
+        "no_logs": "No logs to export",
+    },
+}
+
+
+def T(key, *args):
+    """UI string for this build's language."""
+    table = STRINGS.get(LANG, STRINGS["it"])
+    text = table.get(key, key)
+    return text % args if args else text
+
+
+
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
 _DL_URI = None
@@ -303,7 +352,7 @@ class Root(BoxLayout):
         # The WebView overlay leaves this strip visible, so this button can
         # always be tapped (the Android BACK key closes the whole activity
         # instead of reaching a View.OnKeyListener).
-        self.close_btn = big_button("< Chiudi interfaccia web", "#455A64")
+        self.close_btn = big_button(T("close"), "#455A64")
         self.close_btn.disabled = True
         self.close_btn.bind(on_release=self._close_webview)
         self.add_widget(self.close_btn)
@@ -318,7 +367,7 @@ class Root(BoxLayout):
         ))
 
         self.status = Label(
-            text="Server fermo",
+            text=T("stopped"),
             font_size=dp(19),
             halign="center",
             valign="middle",
@@ -330,16 +379,16 @@ class Root(BoxLayout):
         self.progress = ProgressBar(max=100, value=0, size_hint_y=None, height=dp(16))
         self.add_widget(self.progress)
 
-        self.start_btn = big_button("Avvia server", "#2E7D32")
+        self.start_btn = big_button(T("start"), "#2E7D32")
         self.start_btn.bind(on_release=self.start_server)
         self.add_widget(self.start_btn)
 
-        self.stop_btn = big_button("Ferma server", "#B71C1C")
+        self.stop_btn = big_button(T("stop"), "#B71C1C")
         self.stop_btn.disabled = True
         self.stop_btn.bind(on_release=self.stop_server)
         self.add_widget(self.stop_btn)
 
-        self.open_btn = big_button("Apri interfaccia web", "#1565C0")
+        self.open_btn = big_button(T("open"), "#1565C0")
         self.open_btn.disabled = True
         self.open_btn.bind(on_release=self.open_ui)
         self.add_widget(self.open_btn)
@@ -347,7 +396,7 @@ class Root(BoxLayout):
         # Small, unobtrusive: copies the internal logs into Download on demand
         # (they are kept hidden otherwise).
         self.log_btn = Button(
-            text="Esporta log di debug",
+            text=T("export"),
             font_size=dp(14),
             size_hint=(1, None),
             height=dp(38),
@@ -398,8 +447,8 @@ class Root(BoxLayout):
             if _publish_text(name, text):
                 exported += 1
         self.status.text = (
-            "Log esportati in Download" if exported
-            else "Nessun log da esportare"
+            T("logs_ok") if exported
+            else T("no_logs")
         )
 
     def _enqueue_download(self, url, name):
@@ -408,7 +457,7 @@ class Root(BoxLayout):
         MediaStore is used instead of DownloadManager: DownloadManager runs in
         the system process and its localhost download failed silently.
         """
-        self.status.text = "Salvataggio in corso:\n%s" % name
+        self.status.text = T("saving", name)
 
         def worker():
             import urllib.request
@@ -472,13 +521,13 @@ class Root(BoxLayout):
                 _log("save: OK -> Download/%s" % name)
                 Clock.schedule_once(lambda _dt: setattr(self.progress, "value", 100), 0)
                 Clock.schedule_once(
-                    lambda _dt: setattr(self.status, "text", "Salvato in Download:\n%s" % name),
+                    lambda _dt: setattr(self.status, "text", T("saved", name)),
                     0,
                 )
             except Exception:
                 _log("save FAILED:\n" + traceback.format_exc())
                 Clock.schedule_once(
-                    lambda _dt: setattr(self.status, "text", "Errore salvataggio"), 0
+                    lambda _dt: setattr(self.status, "text", T("save_err")), 0
                 )
             finally:
                 try:
@@ -494,7 +543,7 @@ class Root(BoxLayout):
         _log("start_server tapped")
         if self.server is not None:
             return
-        self.status.text = "Avvio in corso..."
+        self.status.text = T("starting")
         try:
             self.server = ServerThread()
             self.server.start()
@@ -503,7 +552,7 @@ class Root(BoxLayout):
         except Exception:
             tb = traceback.format_exc()
             _log("SERVER START FAILED:\n" + tb)
-            self.status.text = "Errore avvio:\n" + tb[-300:]
+            self.status.text = T("start_err") + tb[-300:]
             self.server = None
             return
         Clock.schedule_once(lambda _dt: self._set_running(True), 0.6)
@@ -524,7 +573,7 @@ class Root(BoxLayout):
 
     def _set_running(self, running):
         self.status.text = (
-            "Server attivo\nhttp://%s:%s" % (HOST, PORT) if running else "Server fermo"
+            T("running", HOST, PORT) if running else T("stopped")
         )
         self.start_btn.disabled = running
         self.stop_btn.disabled = not running

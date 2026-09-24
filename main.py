@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-sdkin"
+BUILD_ID = "2026-09-24-progress"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -270,6 +270,7 @@ try:
     from kivy.uix.button import Button
     from kivy.uix.label import Label
     from kivy.uix.scrollview import ScrollView
+    from kivy.uix.progressbar import ProgressBar
     from kivy.metrics import dp
     from kivy.utils import get_color_from_hex
 
@@ -328,6 +329,9 @@ class Root(BoxLayout):
         )
         self.status.bind(size=lambda lbl, size: setattr(lbl, "text_size", size))
         self.add_widget(self.status)
+
+        self.progress = ProgressBar(max=100, value=0, size_hint_y=None, height=dp(16))
+        self.add_widget(self.progress)
 
         self.start_btn = big_button("Avvia server", "#2E7D32")
         self.start_btn.bind(on_release=self.start_server)
@@ -405,12 +409,21 @@ class Root(BoxLayout):
             tmp = os.path.join(app_dir, "reclip_dl_tmp")
             try:
                 _log("save: downloading via localhost -> %s" % name)
+                Clock.schedule_once(lambda _dt: setattr(self.progress, "value", 0), 0)
                 with urllib.request.urlopen(url, timeout=900) as resp, open(tmp, "wb") as out:
+                    total = int(resp.headers.get("Content-Length") or 0)
+                    got = 0
                     while True:
                         chunk = resp.read(65536)
                         if not chunk:
                             break
                         out.write(chunk)
+                        got += len(chunk)
+                        if total:
+                            pct = min(100, int(got * 100 / total))
+                            Clock.schedule_once(
+                                lambda _dt, v=pct: setattr(self.progress, "value", v), 0
+                            )
                 size = os.path.getsize(tmp)
                 _log("save: downloaded %d bytes" % size)
 
@@ -449,8 +462,16 @@ class Root(BoxLayout):
                 stream.flush()
                 stream.close()
                 _log("save: OK -> Download/%s" % name)
+                Clock.schedule_once(lambda _dt: setattr(self.progress, "value", 100), 0)
+                Clock.schedule_once(
+                    lambda _dt: setattr(self.status, "text", "Salvato in Download:\n%s" % name),
+                    0,
+                )
             except Exception:
                 _log("save FAILED:\n" + traceback.format_exc())
+                Clock.schedule_once(
+                    lambda _dt: setattr(self.status, "text", "Errore salvataggio"), 0
+                )
             finally:
                 try:
                     os.remove(tmp)

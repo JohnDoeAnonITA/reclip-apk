@@ -270,6 +270,27 @@
     .card-status.done { color: var(--success); }
     .card-status.error { color: var(--error); }
 
+    .dl-progress {
+      width: 100%;
+      height: 8px;
+      background: rgba(26,26,24,0.10);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .dl-progress > div {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.3s ease;
+    }
+    .dl-progress-text {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
     .q-chip {
       padding: 4px 10px;
       border: 1.5px solid var(--card-border);
@@ -419,6 +440,25 @@
 
     function parseUrls(text) {
       return [...new Set(text.split(/[\s,]+/).map(u => u.trim()).filter(u => u.startsWith('http')))];
+    }
+
+    function fmtBytes(n) {
+      if (!n || n < 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let i = 0;
+      while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+      return n.toFixed(1) + ' ' + units[i];
+    }
+
+    function fmtProgress(p) {
+      if (!p) return '';
+      if (p.phase === 'processing') return 'Elaborazione (ffmpeg)...';
+      if (p.phase === 'starting') return 'Avvio...';
+      const parts = [(p.percent || 0).toFixed(1) + '%'];
+      if (p.total) parts.push(fmtBytes(p.downloaded) + ' / ' + fmtBytes(p.total));
+      if (p.speed) parts.push(fmtBytes(p.speed) + '/s');
+      if (p.eta) parts.push('ETA ' + Math.round(p.eta) + 's');
+      return parts.join(' · ');
     }
 
     function fmtDur(s) {
@@ -584,7 +624,9 @@
       if (c.status === 'ready') {
         actionHtml = `<button class="card-dl-btn" onclick="dlCard(${idx})">Download</button>${qualityChips}`;
       } else if (c.status === 'downloading') {
-        actionHtml = `<span class="card-status downloading"><span class="spin"></span> Downloading...</span>`;
+        actionHtml = `<span class="card-status downloading"><span class="spin"></span> Downloading...</span>
+          <div class="dl-progress"><div id="prog-bar-${idx}"></div></div>
+          <div class="dl-progress-text" id="prog-txt-${idx}">0%</div>`;
       } else if (c.status === 'done') {
         actionHtml = `<button class="card-dl-btn done" onclick="saveCard(${idx})">Save</button>
           <span class="card-status done">${esc(c.filename || '')}</span>`;
@@ -658,6 +700,12 @@
         try {
           const res = await fetch(`/api/status/${c.jobId}`);
           const data = await res.json();
+          if (data.progress) {
+            const bar = document.getElementById(`prog-bar-${idx}`);
+            const txt = document.getElementById(`prog-txt-${idx}`);
+            if (bar) bar.style.width = (data.progress.percent || 0) + '%';
+            if (txt) txt.textContent = fmtProgress(data.progress);
+          }
           if (data.status === 'done') {
             clearInterval(iv);
             c.status = 'done';

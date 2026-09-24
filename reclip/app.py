@@ -147,14 +147,43 @@ def ytdlp_opts(**extra):
     return opts
 
 
+def _on_progress(job, d):
+    """yt-dlp progress hook -> job['progress'] for the UI progress bar."""
+    try:
+        status = d.get("status")
+        if status == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            done = d.get("downloaded_bytes") or 0
+            job["progress"] = {
+                "phase": "downloading",
+                "percent": round(done * 100.0 / total, 1) if total else 0,
+                "downloaded": done,
+                "total": total,
+                "speed": d.get("speed"),
+                "eta": d.get("eta"),
+            }
+        elif status == "finished":
+            job["progress"] = {
+                "phase": "processing",
+                "percent": 100,
+                "downloaded": d.get("total_bytes") or 0,
+                "total": d.get("total_bytes") or 0,
+            }
+    except Exception:
+        pass
+
+
 def run_download(job_id, url, format_choice, format_id):
     import yt_dlp
 
     job = jobs[job_id]
     outtmpl = os.path.join(DOWNLOAD_DIR, "%s.%%(ext)s" % job_id)
 
+    job["progress"] = {"phase": "starting", "percent": 0}
+
     def build_opts(use_ffmpeg):
         opts = ytdlp_opts(outtmpl=outtmpl)
+        opts["progress_hooks"] = [lambda d: _on_progress(job, d)]
         if format_choice == "audio":
             opts["format"] = "bestaudio/best"
             if use_ffmpeg:
@@ -331,6 +360,7 @@ class ReClipHandler(BaseHTTPRequestHandler):
                 "status": job["status"],
                 "error": job.get("error"),
                 "filename": job.get("filename"),
+                "progress": job.get("progress"),
             })
         if path.startswith("/api/file/"):
             job = jobs.get(path.rsplit("/", 1)[-1])

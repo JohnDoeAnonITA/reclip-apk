@@ -176,7 +176,18 @@ jobs:
                   print(path, os.path.getsize(path))
           PY
 
-      - name: Build APK (release, signed if secrets are present)
+      - name: Build APK (release)
+        # buildozer 1.5 has NO keystore options (its default.spec has none), so
+        # it only produces an unsigned release APK; we sign it in the next step.
+        run: |
+          set -e
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version 2>&1 | head -1
+          python3 --version
+          buildozer -v android release
+          ls -lh bin/ || true
+
+      - name: Sign the release APK (apksigner)
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
@@ -184,25 +195,28 @@ jobs:
           KEYALIAS_PASS: ${{ secrets.KEYALIAS_PASS }}
         run: |
           set -e
-          echo "JAVA_HOME=$JAVA_HOME"
-          java -version 2>&1 | head -1
-          python3 --version
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$HOME/reclip.keystore"
-            cat >> buildozer.spec <<EOF
+          UNSIGNED=$(ls bin/*release*.apk 2>/dev/null | head -1 || true)
+          if [ -z "$UNSIGNED" ]; then echo "no release apk in bin/"; ls -lh bin/ || true; exit 1; fi
+          echo "unsigned: $UNSIGNED"
 
-          # --- release signing (injected by CI, never committed) ---
-          android.keystore = $HOME/reclip.keystore
-          android.keystore_pass = $KEYSTORE_PASS
-          android.keyalias = $KEYALIAS
-          android.keyalias_pass = $KEYALIAS_PASS
-          EOF
-            echo "release keystore configured"
-            buildozer -v android release
-          else
-            echo "no keystore secret -> debug build"
-            buildozer -v android debug
-          fi
+          BT=$(ls -d "$HOME"/.buildozer/android/platform/android-sdk/build-tools/*/ \
+                    /usr/local/lib/android/sdk/build-tools/*/ 2>/dev/null | sort -V | tail -1)
+          echo "build-tools: $BT"
+          [ -x "${BT}zipalign" ] || { echo "zipalign/apksigner not found"; exit 1; }
+
+          echo "$KEYSTORE_B64" | base64 -d > "$HOME/reclip.keystore"
+          "${BT}zipalign" -f 4 "$UNSIGNED" /tmp/aligned.apk
+          "${BT}apksigner" sign \
+            --ks "$HOME/reclip.keystore" \
+            --ks-key-alias "$KEYALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASS" \
+            --key-pass "pass:$KEYALIAS_PASS" \
+            --out bin/reclip-1.0.0-release-signed.apk /tmp/aligned.apk
+
+          echo "--- signature ---"
+          "${BT}apksigner" verify --print-certs bin/reclip-1.0.0-release-signed.apk | head -6
+          rm -f "$UNSIGNED"
+          ls -lh bin/
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

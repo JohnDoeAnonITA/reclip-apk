@@ -24,7 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8899
 
 # Bumped every build so the log tells us which APK actually ran.
-BUILD_ID = "2026-09-24-mediasave"
+BUILD_ID = "2026-09-24-sdkin"
 
 _LOG_NAME = "reclip_boot.log"
 _LOG_LINES = []
@@ -39,6 +39,17 @@ def _log_app_path():
     return os.path.join(base, _LOG_NAME)
 
 
+def _sdk_int():
+    """Android SDK_INT. Nested classes need the '$' form in jnius:
+    `autoclass("android.os.Build").VERSION` raises AttributeError."""
+    try:
+        from jnius import autoclass
+
+        return int(autoclass("android.os.Build$VERSION").SDK_INT)
+    except Exception:
+        return 99
+
+
 def _mirror_to_downloads(text):
     global _DL_URI
     try:
@@ -49,13 +60,12 @@ def _mirror_to_downloads(text):
         MediaStore = autoclass("android.provider.MediaStore")
         CV = autoclass("android.content.ContentValues")
         Cols = autoclass("android.provider.MediaStore$MediaColumns")
-        Build = autoclass("android.os.Build")
 
         if _DL_URI is None:
             values = CV()
             values.put(Cols.DISPLAY_NAME, _LOG_NAME)
             values.put(Cols.MIME_TYPE, "text/plain")
-            if Build.VERSION.SDK_INT >= 29:
+            if _sdk_int() >= 29:
                 values.put(Cols.RELATIVE_PATH, "Download")
             _DL_URI = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
 
@@ -411,7 +421,6 @@ class Root(BoxLayout):
                 MS = autoclass("android.provider.MediaStore")
                 CV = autoclass("android.content.ContentValues")
                 Cols = autoclass("android.provider.MediaStore$MediaColumns")
-                Build = autoclass("android.os.Build")
 
                 lower = name.lower()
                 if lower.endswith(".mp4"):
@@ -424,7 +433,7 @@ class Root(BoxLayout):
                 vals = CV()
                 vals.put(Cols.DISPLAY_NAME, name)
                 vals.put(Cols.MIME_TYPE, mime)
-                if Build.VERSION.SDK_INT >= 29:
+                if _sdk_int() >= 29:
                     vals.put(Cols.RELATIVE_PATH, "Download")
                 uri = resolver.insert(MS.Downloads.EXTERNAL_CONTENT_URI, vals)
                 if uri is None:

@@ -65,7 +65,7 @@ jobs:
             git zip unzip openjdk-17-jdk-headless \
             autoconf automake libtool pkg-config zlib1g-dev \
             libncurses-dev libncursesw5-dev cmake libffi-dev libssl-dev \
-            build-essential ccache libltdl-dev
+            build-essential ccache libltdl-dev nasm
 
       - name: Select Java 17
         run: |

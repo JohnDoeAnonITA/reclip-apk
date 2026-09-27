@@ -81,6 +81,24 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --upgrade "buildozer==1.5.0" "cython==0.29.36"
 
+      - name: Patch buildozer to accept android.add_libs_x86_64
+        # buildozer 1.5 only knows add_libs_x86, not x86_64, so the key in
+        # buildozer.spec would be silently ignored and the APK would ship
+        # WITHOUT ffmpeg (that is exactly what happened).
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import buildozer
+          f = pathlib.Path(buildozer.__file__).parent / "targets" / "android.py"
+          s = f.read_text()
+          if "add_libs_x86_64" not in s:
+              s = s.replace("('android.add_libs_x86', 'x86'),",
+                            "('android.add_libs_x86', 'x86'),\n"
+                            "                ('android.add_libs_x86_64', 'x86_64'),")
+              f.write_text(s)
+          print("add_libs_x86_64 supported:", "add_libs_x86_64" in f.read_text())
+          PY
+
       - name: Sanity check main.py
         run: |
           python3 - <<'PY'

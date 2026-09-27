@@ -35,6 +35,10 @@ jobs:
           sed -i "s|^package.name = .*|package.name = reclipit|" buildozer.spec
           sed -i "s|^package.domain = .*|package.domain = com.reclipit|" buildozer.spec
           sed -i "s|^title = .*|title = ReClip IT (x86_64 alpha)|" buildozer.spec
+          # buildozer.spec only ships ffmpeg for the ARM ABIs: declare ours too,
+          # otherwise the APK is built WITHOUT ffmpeg.
+          grep -q "add_libs_x86_64" buildozer.spec || \
+            echo "android.add_libs_x86_64 = libs/x86_64/*.so" >> buildozer.spec
           cp reclip/templates/index_it.html reclip/templates/index.html
           grep -E "^LANG" main.py
           grep -E "^(title|package.name|android.archs) " buildozer.spec
@@ -189,6 +193,21 @@ jobs:
           "${BT}apksigner" verify --print-certs bin/reclip-it-x86_64-ALPHA.apk | head -6
           rm -f "$UNSIGNED"
           ls -lh bin/
+
+      - name: Verify the APK really contains ffmpeg and the Python bundle
+        run: |
+          APK=$(ls bin/reclip-it-x86_64-ALPHA*.apk | head -1)
+          echo "checking $APK"
+          MISSING=""
+          for entry in lib/x86_64/libffmpeg.so lib/x86_64/libffprobe.so \
+                       lib/x86_64/libpybundle.so lib/x86_64/libSDL2.so assets/private.tar; do
+            if unzip -l "$APK" | grep -q "$entry"; then
+              echo "  OK      $entry"
+            else
+              echo "  MISSING $entry"; MISSING=1
+            fi
+          done
+          [ -z "$MISSING" ] || { echo "incomplete APK: aborting"; exit 1; }
 
       - name: Upload ALPHA artifact
         uses: actions/upload-artifact@v4
